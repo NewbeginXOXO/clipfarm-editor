@@ -3,4 +3,5 @@ opencv-python-headless>=4.8,<5   # 4.x ships the Haar face detector used for fac
 Pillow>=10
 numpy
 pytesseract
+deno            # JavaScript runtime yt-dlp needs for YouTube extraction (free, official wheel)
 # system: ffmpeg, ffprobe, tesseract-ocr, a bold TTF (Poppins-Bold) -> set FONT_BOLD in editor/layout.py
