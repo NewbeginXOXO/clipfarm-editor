@@ -1,0 +1,6 @@
+faster-whisper>=1.1
+opencv-python-headless>=4.8,<5   # 4.x ships the Haar face detector used for facecam crops
+Pillow>=10
+numpy
+pytesseract
+# system: ffmpeg, ffprobe, tesseract-ocr, a bold TTF (Poppins-Bold) -> set FONT_BOLD in editor/layout.py

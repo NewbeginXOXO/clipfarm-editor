@@ -1,0 +1,33 @@
+{
+  "pass": true,
+  "issues": [],
+  "checks": {
+    "resolution": "1080x1920",
+    "av_start_drift_ms": 0.0,
+    "av_duration_drift_ms": 7.7,
+    "duration_s": 11.54,
+    "caption_chunks": 9,
+    "frames_checked": 10,
+    "overlay_px_worst": {
+      "center": 0,
+      "top_ui": 0,
+      "bottom_ui": 0,
+      "outside_safe_x": 0,
+      "hook_outside_band": 0,
+      "caps_outside_band": 0
+    },
+    "hook_ocr": "CAN YOU BARREL ROLL IN GTA 6?",
+    "hook_ocr_match": 1.0
+  },
+  "attempt": 1,
+  "clip_id": "TEST-338",
+  "final": "out/TEST-338.mp4",
+  "hook": "Can you barrel roll in GTA 6?",
+  "facecam": [
+    1500,
+    60,
+    380,
+    214
+  ],
+  "words": 24
+}

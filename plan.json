@@ -1,0 +1,196 @@
+{
+ "clip_id": "TEST-338",
+ "hook": {
+  "text": "CAN YOU BARREL ROLL IN GTA 6?",
+  "lines": [
+   "CAN YOU BARREL ROLL IN",
+   "GTA 6?"
+  ],
+  "px": 64,
+  "boxes": [
+   [
+    138,
+    246,
+    943,
+    302
+   ],
+   [
+    424,
+    315,
+    657,
+    374
+   ]
+  ]
+ },
+ "captions": [
+  {
+   "text": "WHOA WHOA WHOA",
+   "start": 0.5,
+   "end": 1.98,
+   "word_start": 0.5,
+   "lines": [
+    "WHOA WHOA WHOA"
+   ],
+   "px": 78,
+   "boxes": [
+    [
+     130,
+     1411,
+     951,
+     1481
+    ]
+   ]
+  },
+  {
+   "text": "CAN YOU EVEN",
+   "start": 2.08,
+   "end": 3.22,
+   "word_start": 2.08,
+   "lines": [
+    "CAN YOU EVEN"
+   ],
+   "px": 78,
+   "boxes": [
+    [
+     244,
+     1411,
+     835,
+     1481
+    ]
+   ]
+  },
+  {
+   "text": "DO A BARREL",
+   "start": 3.22,
+   "end": 4.36,
+   "word_start": 3.22,
+   "lines": [
+    "DO A BARREL"
+   ],
+   "px": 78,
+   "boxes": [
+    [
+     284,
+     1411,
+     797,
+     1481
+    ]
+   ]
+  },
+  {
+   "text": "ROLL",
+   "start": 4.36,
+   "end": 5.08,
+   "word_start": 4.36,
+   "lines": [
+    "ROLL"
+   ],
+   "px": 78,
+   "boxes": [
+    [
+     440,
+     1411,
+     641,
+     1481
+    ]
+   ]
+  },
+  {
+   "text": "IN THIS THING",
+   "start": 5.18,
+   "end": 6.66,
+   "word_start": 5.18,
+   "lines": [
+    "IN THIS THING"
+   ],
+   "px": 78,
+   "boxes": [
+    [
+     266,
+     1410,
+     813,
+     1481
+    ]
+   ]
+  },
+  {
+   "text": "LET'S GO NO",
+   "start": 6.76,
+   "end": 7.9,
+   "word_start": 6.76,
+   "lines": [
+    "LET'S GO NO"
+   ],
+   "px": 78,
+   "boxes": [
+    [
+     301,
+     1404,
+     779,
+     1481
+    ]
+   ]
+  },
+  {
+   "text": "WAY IT WORKED",
+   "start": 7.9,
+   "end": 9.04,
+   "word_start": 7.9,
+   "lines": [
+    "WAY IT WORKED"
+   ],
+   "px": 78,
+   "boxes": [
+    [
+     212,
+     1411,
+     868,
+     1481
+    ]
+   ]
+  },
+  {
+   "text": "CHAT DID YOU",
+   "start": 9.04,
+   "end": 10.18,
+   "word_start": 9.04,
+   "lines": [
+    "CHAT DID YOU"
+   ],
+   "px": 78,
+   "boxes": [
+    [
+     254,
+     1411,
+     826,
+     1481
+    ]
+   ]
+  },
+  {
+   "text": "SEE THAT",
+   "start": 10.18,
+   "end": 11.280000000000001,
+   "word_start": 10.18,
+   "lines": [
+    "SEE THAT"
+   ],
+   "px": 78,
+   "boxes": [
+    [
+     355,
+     1410,
+     725,
+     1481
+    ]
+   ]
+  }
+ ],
+ "facecam": [
+  1500,
+  60,
+  380,
+  214
+ ],
+ "attempt": 1
+}

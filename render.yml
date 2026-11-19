@@ -1,0 +1,73 @@
+# Clip Farm precision editor on GitHub Actions ($0 on a public repo).
+# n8n (Clip Farm Query > "Auto-Edit API (Clip Farm Render)") sends a repository_dispatch "clipfarm-render" per clip.
+# This job renders the 1080x1920 safe-zone edit, runs verify_edit.py (auto-revises), uploads the MP4 to the
+# "renders" release and calls n8n back. It never posts to social media.
+name: render
+
+on:
+  repository_dispatch:
+    types: [clipfarm-render]
+  workflow_dispatch:
+    inputs:
+      clip_id: { description: 'Queue clip_id', required: true }
+      source_url: { description: 'Licensed source video URL', required: true }
+      start: { description: 'Start second', required: true }
+      end: { description: 'End second', required: true }
+      title: { description: 'Hook / title (<= 7 words)', required: true }
+      callback_url: { description: 'n8n Callbacks URL (editor=farm)', required: true }
+
+permissions:
+  contents: write   # upload the MP4 to the "renders" release
+
+concurrency:
+  group: render-${{ github.event.client_payload.clip_id || github.event.inputs.clip_id }}
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: System tools (ffmpeg, tesseract, font)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg tesseract-ocr
+          mkdir -p fonts
+          curl -sSL -o fonts/Poppins-Bold.ttf https://github.com/google/fonts/raw/main/ofl/poppins/Poppins-Bold.ttf
+
+      - name: Python packages
+        run: pip install -q -r requirements.txt yt-dlp
+
+      - name: Cache Whisper model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: whisper-small-en-v1
+
+      - name: Optional YouTube cookies (only if YouTube blocks the runner)
+        env:
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          if [ -n "$YT_COOKIES" ]; then printf '%s' "$YT_COOKIES" > cookies.txt; fi
+
+      - name: Render + verify + deliver
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLIPFARM_FONT: ${{ github.workspace }}/fonts/Poppins-Bold.ttf
+        run: python editor/gh_job.py
+
+      - name: Keep the verifier report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ github.run_id }}
+          path: renders/**/*.report.json
+          if-no-files-found: ignore
+          retention-days: 30
