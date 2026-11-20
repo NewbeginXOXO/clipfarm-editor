@@ -7,7 +7,8 @@ Steps: yt-dlp downloads ONLY the licensed window -> render_edit.py (render + ver
   PASS -> MP4 uploaded to the "renders" release -> POST {"status":"completed","clips":[...]} to callback_url (n8n Callbacks, editor=farm)
   FAIL -> POST {"status":"failed","error":...}  (never reaches Approvals)
 Every verified render also gets a post-style thumbnail JPG (the hook frame, 9:16, as the Short shows in the feed) next to the MP4.
-Thumbs mode backfills thumbnails for edits already in the "renders" release (no download from YouTube, no AI).
+Thumbs mode backfills or REVISES thumbnails for edits already in the "renders" release: pick another frame (t) and/or put new
+cover text in the hook band, without re-rendering the video (no download from YouTube, no AI).
 Nothing here posts to social media. DRY_RUN lives in n8n and stays true until the user says "POST".
 """
 import json, os, re, subprocess, sys, time
@@ -46,13 +47,39 @@ def moments(p):
     print(json.dumps([{k: r.get(k) for k in ('video_id', 'ok', 'had_heatmap', 'chat_peaks', 'error')} for r in res]))
 
 
-THUMB_T = 1.0  # seconds in: hook, #AD badge and the first spoken caption are all on screen
+THUMB_T = 1.0  # seconds in: the hook and the first spoken caption are both on screen
 
 
-def make_thumb(mp4, jpg, t=THUMB_T):
-    """Post-style thumbnail: one full 9:16 frame of the FINAL edit (hook + badge + captions exactly as rendered), 540x960 JPG."""
+def make_thumb(mp4, jpg, t=THUMB_T, text=''):
+    """Post-style thumbnail: one full 9:16 frame of the FINAL edit (hook + captions exactly as rendered), 540x960 JPG.
+    Optional cover text replaces the hook band (y 220-380 at full size) on the IMAGE only; the video is never touched."""
     subprocess.run(['ffmpeg', '-y', '-v', 'error', '-ss', f'{t:.2f}', '-i', mp4, '-frames:v', '1', '-vf', 'scale=540:960', '-q:v', '4', jpg], check=True, timeout=120)
+    if text:
+        cover_text(jpg, text)
     return os.path.exists(jpg) and os.path.getsize(jpg) > 1000
+
+
+def cover_text(jpg, text):
+    """Thumbnail-only text in the hook band (same safe zone as the edit: y 110-190, x 45-495 at 540x960). Fit to <= 2 lines."""
+    from PIL import Image, ImageDraw, ImageFont
+    font_path = os.environ.get('CLIPFARM_FONT', '/usr/share/fonts/truetype/google-fonts/Poppins-Bold.ttf')
+    im = Image.open(jpg).convert('RGB'); d = ImageDraw.Draw(im, 'RGBA')
+    x0, x1, y0, y1 = 40, 500, 106, 194
+    words = re.sub(r'\s+', ' ', str(text)).strip().upper().split()[:10]
+    for px in range(40, 15, -2):
+        f = ImageFont.truetype(font_path, px); lines, cur = [], ''
+        for w in words:
+            nxt = (cur + ' ' + w).strip()
+            if f.getlength(nxt) <= (x1 - x0 - 16): cur = nxt
+            else: lines.append(cur); cur = w
+        lines.append(cur); lines = [l for l in lines if l]
+        if len(lines) <= 2 and all(f.getlength(l) <= x1 - x0 - 16 for l in lines) and len(lines) * px * 1.15 <= y1 - y0 - 8:
+            break
+    d.rounded_rectangle((x0, y0, x1, y1), radius=14, fill=(0, 0, 0, 255))  # opaque: fully hides the burned-in hook under it
+    lh = int(px * 1.15); top = y0 + ((y1 - y0) - lh * len(lines)) // 2
+    for i, l in enumerate(lines):
+        d.text(((x0 + x1) // 2, top + i * lh), l, font=f, fill=(255, 230, 0), anchor='ma', stroke_width=2, stroke_fill=(0, 0, 0))
+    im.save(jpg, quality=88)
 
 
 def ensure_release():
@@ -74,11 +101,15 @@ def thumbs(p):
         if not cid or not re.fullmatch(r'[\w.-]+\.mp4', name):
             out.append({'clip_id': it.get('clip_id'), 'ok': False, 'error': 'not a renders-release MP4'}); continue
         try:
-            mp4, jpg = os.path.join('thumbs', name), os.path.join('thumbs', name[:-4] + '.jpg')
-            subprocess.run(['gh', 'release', 'download', 'renders', '--pattern', name, '--dir', 'thumbs', '--clobber'], check=True, timeout=300)
-            if not make_thumb(mp4, jpg): raise RuntimeError('empty frame')
+            rev = int(it.get('rev') or 0); rev = rev if 0 < rev < 1000 else 0
+            t = min(max(float(it.get('t') if it.get('t') not in (None, '') else THUMB_T), 0.0), 180.0)
+            text = re.sub(r'[^\w\s?!\'.,&#-]', '', str(it.get('text') or ''))[:60].strip()
+            mp4, jpg = os.path.join('thumbs', name), os.path.join('thumbs', name[:-4] + (f'-r{rev}' if rev else '') + '.jpg')
+            if not os.path.exists(mp4):
+                subprocess.run(['gh', 'release', 'download', 'renders', '--pattern', name, '--dir', 'thumbs', '--clobber'], check=True, timeout=300)
+            if not make_thumb(mp4, jpg, t, text): raise RuntimeError('empty frame')
             subprocess.run(['gh', 'release', 'upload', 'renders', jpg, '--clobber'], check=True, timeout=300)
-            out.append({'clip_id': it.get('clip_id'), 'ok': True, 'thumb': pre + os.path.basename(jpg)})
+            out.append({'clip_id': it.get('clip_id'), 'ok': True, 'thumb': pre + os.path.basename(jpg), 'rev': rev, 't': t, 'text': text})
         except Exception as ex:
             out.append({'clip_id': it.get('clip_id'), 'ok': False, 'error': f'{ex.__class__.__name__}: {ex}'[:200]})
     post(cb, {'status': 'thumbs', 'items': out})
