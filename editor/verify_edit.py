@@ -19,7 +19,7 @@ import numpy as np
 import cv2
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
-from layout import W, H, TOP_UI, HOOK, CENTER, CAPS, BOTTOM_UI, SAFE_X, HOOK_MAX_WORDS, HOOK_MAX_LINES, CAP_MAX_WORDS, CAP_MAX_LINES, MAX_AV_DRIFT_S
+from layout import W, H, TOP_UI, HOOK, BADGE, CENTER, CAPS, BOTTOM_UI, SAFE_X, HOOK_MAX_WORDS, HOOK_MAX_LINES, CAP_MAX_WORDS, CAP_MAX_LINES, MAX_AV_DRIFT_S
 
 DIFF_T = 48        # per-pixel difference that counts as overlay (re-encode noise stays well below)
 MIN_BLOB = 40      # ignore specks smaller than this many pixels
@@ -100,7 +100,7 @@ def verify(final, clean, plan):
     times = sorted({0.6} | {round((c['start'] + c['end']) / 2, 2) for c in plan['captions']})
     times = [t for t in times if t < dur - 0.05][:60]
     worst = {'center': 0, 'top_ui': 0, 'bottom_ui': 0, 'outside_safe_x': 0, 'hook_outside_band': 0, 'caps_outside_band': 0}
-    hook_seen = caps_seen = 0
+    hook_seen = caps_seen = badge_seen = 0
     ocr_frame = None
     for t in times:
         fa, fb = frame_at(final, t), frame_at(clean, t)
@@ -116,6 +116,7 @@ def verify(final, clean, plan):
         worst['hook_outside_band'] = max(worst['hook_outside_band'], band(m, TOP_UI[1], HOOK[0]) + band(m, HOOK[1], CENTER[0]))
         worst['caps_outside_band'] = max(worst['caps_outside_band'], band(m, CENTER[1], CAPS[0]) + band(m, CAPS[1], BOTTOM_UI[0]))
         hook_seen += band(m, *HOOK) > 200
+        badge_seen += band(m, *BADGE) > 150
         caps_seen += band(m, *CAPS) > 200
         if ocr_frame is None and band(m, *HOOK) > 200:
             ocr_frame = fa
@@ -127,6 +128,10 @@ def verify(final, clean, plan):
     for k, n in worst.items():
         if n > NOISE_PX:
             issues.append(f'{labels[k]}: {n} px')
+    if plan.get('disclosure'):
+        checks['disclosure_badge'] = badge_seen >= max(1, len(times) - 1)
+        if not checks['disclosure_badge']:
+            issues.append(f'#AD disclosure badge visible in only {badge_seen} of {len(times)} sampled frames')
     if not hook_seen:
         issues.append('hook caption not visible in the hook band')
     if plan['captions'] and caps_seen < max(1, len(plan['captions']) // 2):
