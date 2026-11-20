@@ -6,6 +6,8 @@ Input: the repository_dispatch client_payload (from n8n) or workflow_dispatch in
 Steps: yt-dlp downloads ONLY the licensed window -> render_edit.py (render + verify_edit.py + auto-revision)
   PASS -> MP4 uploaded to the "renders" release -> POST {"status":"completed","clips":[...]} to callback_url (n8n Callbacks, editor=farm)
   FAIL -> POST {"status":"failed","error":...}  (never reaches Approvals)
+Every verified render also gets a post-style thumbnail JPG (the hook frame, 9:16, as the Short shows in the feed) next to the MP4.
+Thumbs mode backfills thumbnails for edits already in the "renders" release (no download from YouTube, no AI).
 Nothing here posts to social media. DRY_RUN lives in n8n and stays true until the user says "POST".
 """
 import json, os, re, subprocess, sys, time
@@ -18,7 +20,7 @@ from farm_server import hook_from, post  # same hook rules and callback format a
 def payload():
     ev = json.load(open(os.environ['GITHUB_EVENT_PATH']))
     p = ev.get('client_payload') or ev.get('inputs') or {}
-    if p.get('mode') == 'moments':
+    if p.get('mode') in ('moments', 'thumbs'):
         return p
     for k in ('clip_id', 'source_url', 'start', 'end', 'callback_url'):
         if not p.get(k):
@@ -44,10 +46,51 @@ def moments(p):
     print(json.dumps([{k: r.get(k) for k in ('video_id', 'ok', 'had_heatmap', 'chat_peaks', 'error')} for r in res]))
 
 
+THUMB_T = 1.0  # seconds in: hook, #AD badge and the first spoken caption are all on screen
+
+
+def make_thumb(mp4, jpg, t=THUMB_T):
+    """Post-style thumbnail: one full 9:16 frame of the FINAL edit (hook + badge + captions exactly as rendered), 540x960 JPG."""
+    subprocess.run(['ffmpeg', '-y', '-v', 'error', '-ss', f'{t:.2f}', '-i', mp4, '-frames:v', '1', '-vf', 'scale=540:960', '-q:v', '4', jpg], check=True, timeout=120)
+    return os.path.exists(jpg) and os.path.getsize(jpg) > 1000
+
+
+def ensure_release():
+    subprocess.run(['gh', 'release', 'view', 'renders'], capture_output=True).returncode == 0 or \
+        subprocess.run(['gh', 'release', 'create', 'renders', '--title', 'Clip Farm renders', '--notes', 'Verified precision edits (dry run: not posted).'], check=True)
+
+
+def thumbs(p):
+    """Backfill thumbnails for finished edits already in this repo's "renders" release. Never touches YouTube, never posts."""
+    cb = p['callback_url']
+    print(f'::add-mask::{cb}')
+    repo = os.environ['GITHUB_REPOSITORY']
+    pre = f'https://github.com/{repo}/releases/download/renders/'
+    os.makedirs('thumbs', exist_ok=True); ensure_release()
+    out = []
+    for it in (p.get('items') or [])[:20]:
+        url, cid = str(it.get('url', '')), re.sub(r'[^\w-]', '_', str(it.get('clip_id', '')))
+        name = url[len(pre):] if url.startswith(pre) else ''
+        if not cid or not re.fullmatch(r'[\w.-]+\.mp4', name):
+            out.append({'clip_id': it.get('clip_id'), 'ok': False, 'error': 'not a renders-release MP4'}); continue
+        try:
+            mp4, jpg = os.path.join('thumbs', name), os.path.join('thumbs', name[:-4] + '.jpg')
+            subprocess.run(['gh', 'release', 'download', 'renders', '--pattern', name, '--dir', 'thumbs', '--clobber'], check=True, timeout=300)
+            if not make_thumb(mp4, jpg): raise RuntimeError('empty frame')
+            subprocess.run(['gh', 'release', 'upload', 'renders', jpg, '--clobber'], check=True, timeout=300)
+            out.append({'clip_id': it.get('clip_id'), 'ok': True, 'thumb': pre + os.path.basename(jpg)})
+        except Exception as ex:
+            out.append({'clip_id': it.get('clip_id'), 'ok': False, 'error': f'{ex.__class__.__name__}: {ex}'[:200]})
+    post(cb, {'status': 'thumbs', 'items': out})
+    print(json.dumps(out))
+
+
 def main():
     p, t0 = payload(), time.time()
     if p.get('mode') == 'moments':
         return moments(p)
+    if p.get('mode') == 'thumbs':
+        return thumbs(p)
     cid = re.sub(r'[^\w-]', '_', str(p['clip_id']))
     cb = p['callback_url']
     print(f'::add-mask::{cb}')  # the callback URL carries the n8n token: never show it in public logs
@@ -78,12 +121,19 @@ def main():
         repo, run = os.environ['GITHUB_REPOSITORY'], os.environ.get('GITHUB_RUN_ID', str(int(t0)))
         name = f'{cid}-{run}.mp4'
         os.rename(os.path.join(work, f'{cid}.mp4'), os.path.join(work, name))
-        subprocess.run(['gh', 'release', 'view', 'renders'], capture_output=True).returncode == 0 or \
-            subprocess.run(['gh', 'release', 'create', 'renders', '--title', 'Clip Farm renders', '--notes', 'Verified precision edits (dry run: not posted).'], check=True)
+        ensure_release()
         subprocess.run(['gh', 'release', 'upload', 'renders', os.path.join(work, name), '--clobber'], check=True)
         url = f'https://github.com/{repo}/releases/download/renders/{name}'
+        thumb = ''
+        try:  # a thumbnail problem never blocks a verified edit
+            jpg = os.path.join(work, name[:-4] + '.jpg')
+            if make_thumb(os.path.join(work, name), jpg):
+                subprocess.run(['gh', 'release', 'upload', 'renders', jpg, '--clobber'], check=True)
+                thumb = f'https://github.com/{repo}/releases/download/renders/{os.path.basename(jpg)}'
+        except Exception as ex:
+            print('thumbnail skipped:', ex)
         post(cb, {'status': 'completed', 'seconds': round(time.time() - t0),
-                  'clips': [{'url': url, 'style': 'Precision Safe-Zone', 'title': hook, 'dur': rep.get('checks', {}).get('duration_s')}],
+                  'clips': [{'url': url, 'thumb': thumb, 'style': 'Precision Safe-Zone', 'title': hook, 'dur': rep.get('checks', {}).get('duration_s')}],
                   'verify': {'pass': True, 'attempt': rep.get('attempt'), 'checks': rep.get('checks')}})
         print('READY FOR APPROVALS:', url)
     except SystemExit:
