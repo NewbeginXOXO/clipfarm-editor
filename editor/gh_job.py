@@ -37,7 +37,14 @@ def main():
                '--download-sections', f'*{s}-{e + 1}', '--force-keyframes-at-cuts', '-o', src]
         if os.path.exists('cookies.txt'):
             cmd += ['--cookies', 'cookies.txt']
-        subprocess.run(cmd + [p['source_url']], check=True, timeout=1200)
+        dl = subprocess.run(cmd + [p['source_url']], capture_output=True, text=True, timeout=1200)
+        if dl.returncode != 0 or not os.path.exists(src):
+            errs = [l for l in (dl.stderr or '').splitlines() if 'ERROR' in l] or (dl.stderr or 'no output').splitlines()[-1:]
+            why = errs[-1] if errs else 'unknown'
+            hint = ' | fix: refresh the YT_COOKIES secret (cookies expired or signed out)' if re.search(r'sign in|cookies|bot', why, re.I) else ''
+            print(dl.stderr[-3000:])
+            post(cb, {'status': 'failed', 'error': ('Download failed: ' + why.replace('ERROR: ', ''))[:330] + hint})
+            sys.exit(1)
         hook = hook_from(p.get('title') or '')
         r = subprocess.run([sys.executable, os.path.join(HERE, 'render_edit.py'), '--source', src, '--start', '0', '--end', str(e - s),
                             '--hook', hook, '--title', p.get('title', ''), '--clip-id', cid, '--out', work], text=True)
@@ -57,9 +64,10 @@ def main():
                   'clips': [{'url': url, 'style': 'Precision Safe-Zone', 'title': hook, 'dur': rep.get('checks', {}).get('duration_s')}],
                   'verify': {'pass': True, 'attempt': rep.get('attempt'), 'checks': rep.get('checks')}})
         print('READY FOR APPROVALS:', url)
-    except subprocess.CalledProcessError as ex:
-        hint = ' (YouTube may be asking GitHub to sign in: add the YT_COOKIES secret)' if 'yt-dlp' in str(ex.cmd) else ''
-        post(cb, {'status': 'failed', 'error': f'{os.path.basename(str(ex.cmd[0]))} failed{hint}'[:400]})
+    except SystemExit:
+        raise
+    except Exception as ex:  # any crash still reports back, so a clip never sits in Editing forever
+        post(cb, {'status': 'failed', 'error': f'Render job crashed: {ex.__class__.__name__}: {ex}'[:400]})
         raise
 
 
