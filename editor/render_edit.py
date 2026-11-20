@@ -140,7 +140,7 @@ def fit_text(text, zone, start_px, max_lines, stroke_ratio=0.09):
     return None
 
 
-def draw_text_png(path, fit, zone, fill=(255, 255, 255), stroke_fill=(0, 0, 0)):
+def draw_text_png(path, fit, zone, fill=(255, 255, 255), stroke_fill=(0, 0, 0), badge=None):
     img = Image.new('RGBA', (L.W, L.H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     font = ImageFont.truetype(L.FONT_BOLD, fit['px'])
@@ -150,6 +150,11 @@ def draw_text_png(path, fit, zone, fill=(255, 255, 255), stroke_fill=(0, 0, 0)):
         y = top + i * fit['lh']
         d.text((L.W // 2, y), line, font=font, fill=fill, anchor='ma', stroke_width=fit['stroke'], stroke_fill=stroke_fill)
         boxes.append(d.textbbox((L.W // 2, y), line, font=font, anchor='ma', stroke_width=fit['stroke']))
+    if badge:  # on-screen paid-partnership disclosure, whole clip, right side of the badge strip (never over gameplay)
+        bf = ImageFont.truetype(L.FONT_BOLD, 22); tw = int(bf.getlength(badge)); x1 = L.SAFE_X[1] - 4; x0 = x1 - tw - 24
+        d.rounded_rectangle((x0, L.BADGE[0] + 1, x1, L.BADGE[1] - 1), radius=8, fill=(0, 0, 0, 200), outline=(255, 255, 255), width=2)
+        d.text(((x0 + x1) // 2, (L.BADGE[0] + L.BADGE[1]) // 2), badge, font=bf, fill=(255, 255, 255), anchor='mm')
+        boxes.append((x0, L.BADGE[0] + 1, x1, L.BADGE[1] - 1))
     img.save(path)
     return boxes
 
@@ -215,11 +220,11 @@ def main():
     final, clean = os.path.join(a.out, f'{a.clip_id}.mp4'), os.path.join(work, 'clean.mp4')
     report = None
     for attempt in range(1, a.max_revisions + 2):
-        hf = fit_text(a.hook.upper(), L.HOOK, hook_px, L.HOOK_MAX_LINES)
+        hf = fit_text(a.hook.upper(), L.HOOK_TEXT, hook_px, L.HOOK_MAX_LINES)
         if not hf:
             log('REJECTED: hook cannot fit 220-380 inside x 90-990'); sys.exit(2)
         hook_png = os.path.join(work, 'hook.png')
-        hook_boxes = draw_text_png(hook_png, hf, L.HOOK, fill=(255, 230, 0))
+        hook_boxes = draw_text_png(hook_png, hf, L.HOOK_TEXT, fill=(255, 230, 0), badge='#AD · PAID PARTNERSHIP')
         caps = chunk_words(words, max_words)
         for i, c in enumerate(caps):
             cf = fit_text(c['text'], L.CAPS, cap_px, 2)
@@ -230,7 +235,7 @@ def main():
             c['png'] = os.path.join(work, f'cap{i:03d}.png'); c['lines'] = cf['lines']; c['px'] = cf['px']
             c['boxes'] = draw_text_png(c['png'], cf, L.CAPS)
         plan = {'clip_id': a.clip_id, 'hook': {'text': a.hook.upper(), 'lines': hf['lines'], 'px': hf['px'], 'boxes': hook_boxes},
-                'captions': [{k: c[k] for k in ('text', 'start', 'end', 'word_start', 'lines', 'px', 'boxes')} for c in caps], 'facecam': cam, 'attempt': attempt}
+                'captions': [{k: c[k] for k in ('text', 'start', 'end', 'word_start', 'lines', 'px', 'boxes')} for c in caps], 'facecam': cam, 'attempt': attempt, 'disclosure': '#AD · PAID PARTNERSHIP'}
         json.dump(plan, open(os.path.join(work, 'plan.json'), 'w'), indent=1)
         render(seg, cam, sw, sh_, hook_png, caps, clean, final)
         report = verify(final, clean, plan)
