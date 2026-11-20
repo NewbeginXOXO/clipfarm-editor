@@ -33,7 +33,7 @@ def main():
     try:
         s = max(0.0, float(p['start']) - 1.5); e = float(p['end'])
         src = os.path.join(work, 'src.mp4')
-        cmd = ['yt-dlp', '-q', '--no-progress', '-f', 'bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b', '--merge-output-format', 'mp4',
+        cmd = ['yt-dlp', '-q', '--no-progress', '-f', 'bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b', '--merge-output-format', 'mp4', '--remote-components', 'ejs:github',
                '--download-sections', f'*{s}-{e + 1}', '--force-keyframes-at-cuts', '-o', src]
         if os.path.exists('cookies.txt'):
             cmd += ['--cookies', 'cookies.txt']
