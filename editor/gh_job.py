@@ -18,14 +18,36 @@ from farm_server import hook_from, post  # same hook rules and callback format a
 def payload():
     ev = json.load(open(os.environ['GITHUB_EVENT_PATH']))
     p = ev.get('client_payload') or ev.get('inputs') or {}
+    if p.get('mode') == 'moments':
+        return p
     for k in ('clip_id', 'source_url', 'start', 'end', 'callback_url'):
         if not p.get(k):
             raise SystemExit(f'missing {k} in job payload')
     return p
 
 
+def moments(p):
+    """Moment scan mode: find viral spikes (chat replay + Most replayed) in finished GTA 6 streams and send them to n8n. No rendering, no AI."""
+    from find_moments import scan
+    cb = p['callback_url']
+    print(f'::add-mask::{cb}')
+    os.makedirs('moments', exist_ok=True)
+    vids = [v for v in (p.get('videos') or []) if re.fullmatch(r'[\w-]{11}', str(v.get('video_id', '')))][:6]
+    res = []
+    for v in vids:
+        try:
+            r = scan(v['video_id'], 'moments')
+        except Exception as ex:
+            r = {'video_id': v['video_id'], 'ok': False, 'error': f'{ex.__class__.__name__}: {ex}'[:300]}
+        res.append({**v, **r})
+    post(cb, {'status': 'moments', 'results': res})
+    print(json.dumps([{k: r.get(k) for k in ('video_id', 'ok', 'had_heatmap', 'chat_peaks', 'error')} for r in res]))
+
+
 def main():
     p, t0 = payload(), time.time()
+    if p.get('mode') == 'moments':
+        return moments(p)
     cid = re.sub(r'[^\w-]', '_', str(p['clip_id']))
     cb = p['callback_url']
     print(f'::add-mask::{cb}')  # the callback URL carries the n8n token: never show it in public logs
