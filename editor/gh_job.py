@@ -21,7 +21,7 @@ from farm_server import hook_from, post  # same hook rules and callback format a
 def payload():
     ev = json.load(open(os.environ['GITHUB_EVENT_PATH']))
     p = ev.get('client_payload') or ev.get('inputs') or {}
-    if p.get('mode') in ('moments', 'thumbs'):
+    if p.get('mode') in ('moments', 'thumbs', 'diag'):
         return p
     for k in ('clip_id', 'source_url', 'start', 'end', 'callback_url'):
         if not p.get(k):
@@ -116,12 +116,35 @@ def thumbs(p):
     print(json.dumps(out))
 
 
+def diag(p):
+    """Cookie health check (no download, no posting). Prints cookie NAMES, domains and expiry dates only, never values."""
+    info = {'cookies_file': os.path.exists('cookies.txt')}
+    if info['cookies_file']:
+        raw = open('cookies.txt', encoding='utf-8', errors='replace').read()
+        rows = [l.split('\t') for l in raw.splitlines() if l.strip() and not l.startswith('#') or l.startswith('#HttpOnly_')]
+        rows = [r for r in rows if len(r) >= 7]
+        names = {r[5]: r for r in rows}
+        key = ['LOGIN_INFO', 'SID', 'HSID', 'SSID', 'SAPISID', '__Secure-1PSID', '__Secure-3PSID', '__Secure-3PAPISID', '__Secure-1PSIDTS', '__Secure-3PSIDTS']
+        info.update({'header_ok': raw.lstrip().startswith('# Netscape HTTP Cookie File') or raw.lstrip().startswith('# HTTP Cookie File'),
+                     'lines': len(rows), 'tabs_ok': bool(rows), 'domains': sorted({r[0].replace('#HttpOnly_', '') for r in rows})[:12],
+                     'auth_cookies': {k: time.strftime('%Y-%m-%d', time.gmtime(int(names[k][4]))) if names[k][4].isdigit() and int(names[k][4]) > 0 else 'session' for k in key if k in names},
+                     'missing': [k for k in ('LOGIN_INFO', 'SAPISID', '__Secure-3PSID') if k not in names]})
+    vid = re.sub(r'[^\w-]', '', str(p.get('video_id') or 'NxgYtzq_n70'))[:11]
+    cmd = ['yt-dlp', '--simulate', '--no-warnings', '--remote-components', 'ejs:github', '-f', 'bv*[height<=1080]+ba/b'] + (['--cookies', 'cookies.txt'] if info['cookies_file'] else []) + ['https://www.youtube.com/watch?v=' + vid]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    info['yt_dlp_ok'] = r.returncode == 0
+    info['yt_dlp_error'] = ([l for l in (r.stderr or '').splitlines() if 'ERROR' in l] or [''])[-1][:300]
+    print('DIAG ' + json.dumps(info))
+
+
 def main():
     p, t0 = payload(), time.time()
     if p.get('mode') == 'moments':
         return moments(p)
     if p.get('mode') == 'thumbs':
         return thumbs(p)
+    if p.get('mode') == 'diag':
+        return diag(p)
     cid = re.sub(r'[^\w-]', '_', str(p['clip_id']))
     cb = p['callback_url']
     print(f'::add-mask::{cb}')  # the callback URL carries the n8n token: never show it in public logs
