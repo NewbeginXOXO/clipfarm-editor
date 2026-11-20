@@ -220,11 +220,15 @@ def main():
     final, clean = os.path.join(a.out, f'{a.clip_id}.mp4'), os.path.join(work, 'clean.mp4')
     report = None
     for attempt in range(1, a.max_revisions + 2):
-        hf = fit_text(a.hook.upper(), L.HOOK_TEXT, hook_px, L.HOOK_MAX_LINES)
+        # v108: no paid-partnership badge (no ad partnership). With no badge the hook uses the whole 220-380 band.
+        # Set CLIPFARM_AD_BADGE (e.g. "#AD · PAID PARTNERSHIP") only for a real paid partnership; verify_edit.py then checks it on every frame.
+        badge = os.environ.get('CLIPFARM_AD_BADGE', '').strip() or None
+        hook_zone = L.HOOK_TEXT if badge else L.HOOK
+        hf = fit_text(a.hook.upper(), hook_zone, hook_px, L.HOOK_MAX_LINES)
         if not hf:
             log('REJECTED: hook cannot fit 220-380 inside x 90-990'); sys.exit(2)
         hook_png = os.path.join(work, 'hook.png')
-        hook_boxes = draw_text_png(hook_png, hf, L.HOOK_TEXT, fill=(255, 230, 0), badge='#AD · PAID PARTNERSHIP')
+        hook_boxes = draw_text_png(hook_png, hf, hook_zone, fill=(255, 230, 0), badge=badge)
         caps = chunk_words(words, max_words)
         for i, c in enumerate(caps):
             cf = fit_text(c['text'], L.CAPS, cap_px, 2)
@@ -235,7 +239,7 @@ def main():
             c['png'] = os.path.join(work, f'cap{i:03d}.png'); c['lines'] = cf['lines']; c['px'] = cf['px']
             c['boxes'] = draw_text_png(c['png'], cf, L.CAPS)
         plan = {'clip_id': a.clip_id, 'hook': {'text': a.hook.upper(), 'lines': hf['lines'], 'px': hf['px'], 'boxes': hook_boxes},
-                'captions': [{k: c[k] for k in ('text', 'start', 'end', 'word_start', 'lines', 'px', 'boxes')} for c in caps], 'facecam': cam, 'attempt': attempt, 'disclosure': '#AD · PAID PARTNERSHIP'}
+                'captions': [{k: c[k] for k in ('text', 'start', 'end', 'word_start', 'lines', 'px', 'boxes')} for c in caps], 'facecam': cam, 'attempt': attempt, **({'disclosure': badge} if badge else {})}
         json.dump(plan, open(os.path.join(work, 'plan.json'), 'w'), indent=1)
         render(seg, cam, sw, sh_, hook_png, caps, clean, final)
         report = verify(final, clean, plan)
