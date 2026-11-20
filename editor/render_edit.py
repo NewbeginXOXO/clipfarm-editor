@@ -89,7 +89,15 @@ def detect_facecam(seg, sw, sh_):
         if len(fs):
             hits.append(max(fs, key=lambda b: b[2] * b[3]))
     cap.release()
-    if len(hits) < 3:
+    if len(hits) < 4:
+        return None
+    # A streamer webcam sits still in one corner. In-game faces (NPCs, cutscenes) move around or sit mid-frame:
+    # require the detections to agree within 6% of the frame and the median face to be outside the central 40%.
+    cx = [b[0] + b[2] / 2 for b in hits]; cy = [b[1] + b[3] / 2 for b in hits]
+    if (max(cx) - min(cx)) > 0.06 * sw or (max(cy) - min(cy)) > 0.06 * sh_:
+        return None
+    mx, my = float(np.median(cx)), float(np.median(cy))
+    if abs(mx - sw / 2) < 0.2 * sw and abs(my - sh_ / 2) < 0.2 * sh_:
         return None
     x, y, w, h = [int(np.median([b[i] for b in hits])) for i in range(4)]
     # webcam box ~ 2.6x the face, 16:9, clamped to the frame: keeps eyes and mouth well inside
