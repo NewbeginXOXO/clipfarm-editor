@@ -14,6 +14,8 @@ FPS = 30
 
 TOP_UI = (0, 210)
 HOOK = (220, 380)
+BADGE = (222, 250)      # paid-partnership disclosure badge ("#AD"), top strip of the hook band, right-aligned
+HOOK_TEXT = (252, 380)  # hook text sits under the badge strip, still inside the hook band
 CENTER = (400, 1320)
 CAPS = (1350, 1520)
 BOTTOM_UI = (1540, 1920)
