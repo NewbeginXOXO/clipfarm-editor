@@ -112,7 +112,7 @@ def main():
             sys.exit(1)
         hook = hook_from(p.get('title') or '')
         r = subprocess.run([sys.executable, os.path.join(HERE, 'render_edit.py'), '--source', src, '--start', '0', '--end', str(e - s),
-                            '--hook', hook, '--title', p.get('title', ''), '--clip-id', cid, '--out', work], text=True)
+                            '--hook', hook, '--title', ' '.join(x for x in (p.get('title', ''), str(p.get('context', ''))[:200]) if x), '--clip-id', cid, '--out', work], text=True)  # context = campaign + source title, so the GTA 6 check sees the footage source
         rp = os.path.join(work, f'{cid}.report.json')
         rep = json.load(open(rp)) if os.path.exists(rp) else {}
         if r.returncode != 0:
