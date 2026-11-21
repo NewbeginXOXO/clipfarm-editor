@@ -167,7 +167,9 @@ def fetch_stage(p):
     """Home PC: download every YouTube window this job needs into fetched/ (no rendering, no AI, never posts). Moment scans and diag
     run here completely, because they only read YouTube and send their own results to n8n."""
     if p.get('mode') in ('moments', 'diag'):
-        return moments(p) if p.get('mode') == 'moments' else diag(p)
+        moments(p) if p.get('mode') == 'moments' else diag(p)
+        os.makedirs(FETCHED, exist_ok=True); open(os.path.join(FETCHED, 'scan_done.txt'), 'w').write('ok')  # tells the GitHub stage not to repeat it
+        return
     wins = [(it.get('source_url'), it.get('start'), it.get('end')) for it in (p.get('items') or [])[:10]] if p.get('mode') == 'thumbs' else [(p.get('source_url'), p.get('start'), p.get('end'))]
     for u, a, b in wins:
         if not u or a is None or b is None:
@@ -183,7 +185,7 @@ def main():
     p, t0 = payload(), time.time()
     if STAGE == 'fetch':
         return fetch_stage(p)
-    if STAGE == 'render' and p.get('mode') in ('moments', 'diag'):
+    if STAGE == 'render' and p.get('mode') in ('moments', 'diag') and os.path.exists(os.path.join(FETCHED, 'scan_done.txt')):
         return print('moment scan / diag already ran on the home PC')
     if p.get('mode') == 'moments':
         return moments(p)
