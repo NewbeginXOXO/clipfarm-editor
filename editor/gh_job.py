@@ -48,10 +48,27 @@ def moments(p):
     print(json.dumps([{k: r.get(k) for k in ('video_id', 'ok', 'had_heatmap', 'chat_peaks', 'error')} for r in res]))
 
 
+STAGE = os.environ.get('CLIPFARM_STAGE', '')  # 'fetch' = home PC (residential IP, only YouTube downloads); 'render' = GitHub runner; '' = both in one job
+FETCHED = os.path.abspath('fetched')
+
+
+def fetched_path(source_url, start, end):
+    import hashlib
+    return os.path.join(FETCHED, hashlib.sha1(f'{source_url}|{float(start)}|{float(end)}'.encode()).hexdigest()[:16] + '.mp4')
+
+
 def download_window(source_url, start, end, work):
-    """yt-dlp downloads ONLY the licensed window [start-1.5, end+1]. Returns (path, s, e) or raises RuntimeError(reason)."""
+    """yt-dlp downloads ONLY the licensed window [start-1.5, end+1]. Returns (path, s, e) or raises RuntimeError(reason).
+    v121: the home PC (fetch stage) downloads it into fetched/ and hands it to the GitHub render stage as an artifact, so YouTube
+    only ever sees a home internet connection. If no pre-fetched file exists, the runner tries itself (ytfetch ladder)."""
     s = max(0.0, float(start) - 1.5); e = float(end)
-    src = os.path.join(work, 'src.mp4')
+    pre = fetched_path(source_url, start, end)
+    if os.path.exists(pre) and os.path.getsize(pre) > 10000 and STAGE != 'fetch':
+        print('using the clip window fetched by the home PC')
+        return pre, s, e
+    if STAGE == 'fetch':
+        os.makedirs(FETCHED, exist_ok=True)
+    src = pre if STAGE == 'fetch' else os.path.join(work, 'src.mp4')
     import ytfetch  # bot-wall ladder: cookies, other clients, PO token, no-cookie fallback
     dl = ytfetch.run(['-q', '--no-progress', '-f', 'bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b', '--merge-output-format', 'mp4',
                       '--download-sections', f'*{s}-{e + 1}', '--force-keyframes-at-cuts', '-o', src], 1200, source_url)
@@ -146,8 +163,28 @@ def diag(p):
     print('DIAG ' + json.dumps(info))
 
 
+def fetch_stage(p):
+    """Home PC: download every YouTube window this job needs into fetched/ (no rendering, no AI, never posts). Moment scans and diag
+    run here completely, because they only read YouTube and send their own results to n8n."""
+    if p.get('mode') in ('moments', 'diag'):
+        return moments(p) if p.get('mode') == 'moments' else diag(p)
+    wins = [(it.get('source_url'), it.get('start'), it.get('end')) for it in (p.get('items') or [])[:10]] if p.get('mode') == 'thumbs' else [(p.get('source_url'), p.get('start'), p.get('end'))]
+    for u, a, b in wins:
+        if not u or a is None or b is None:
+            continue
+        try:
+            download_window(u, a, b, FETCHED)
+            print('fetched', fetched_path(u, a, b))
+        except Exception as ex:
+            print('home fetch failed (the GitHub stage will try itself):', ex)
+
+
 def main():
     p, t0 = payload(), time.time()
+    if STAGE == 'fetch':
+        return fetch_stage(p)
+    if STAGE == 'render' and p.get('mode') in ('moments', 'diag'):
+        return print('moment scan / diag already ran on the home PC')
     if p.get('mode') == 'moments':
         return moments(p)
     if p.get('mode') == 'thumbs':
