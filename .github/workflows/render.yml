@@ -24,9 +24,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 1) Home PC (self-hosted runner labelled "clipfarm-home", residential internet): ONLY talks to YouTube.
+  #    Downloads the licensed clip window (or runs the moment scan) so YouTube never sees a datacenter IP. No cookies needed.
+  #    If the PC is off, this job waits in the queue until it is back on; nothing posts either way.
+  fetch:
+    runs-on: [self-hosted, clipfarm-home]
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      CLIPFARM_STAGE: fetch
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - name: YouTube tools (yt-dlp, JS solver, portable ffmpeg)
+        run: python -m pip install -q -U "yt-dlp[default]" deno imageio-ffmpeg
+      - name: Fetch from the home connection
+        run: python editor/gh_job.py
+      - name: Hand the clip window to the GitHub render job
+        uses: actions/upload-artifact@v4
+        with:
+          name: fetched
+          path: fetched/
+          if-no-files-found: ignore
+          retention-days: 1
+
+  # 2) GitHub runner: renders, verifies, uploads and calls n8n back (unchanged), using the window fetched at home.
   render:
+    needs: fetch
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      CLIPFARM_STAGE: render
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +64,13 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
+
+      - name: Clip window fetched by the home PC
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: fetched
+          path: fetched
 
       - name: System tools (ffmpeg, tesseract, font)
         run: |
@@ -51,7 +88,7 @@ jobs:
           path: ~/.cache/huggingface
           key: whisper-small-en-v1
 
-      - name: Optional YouTube cookies (only if YouTube blocks the runner)
+      - name: Optional YouTube cookies (fallback only, if the home fetch did not run)
         env:
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
         run: |
