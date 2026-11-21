@@ -4,5 +4,6 @@ Pillow>=10
 numpy
 pytesseract
 yt-dlp[default]  # includes yt-dlp-ejs, the YouTube JS challenge solver
+bgutil-ytdlp-pot-provider  # PO token plugin; ytfetch.py starts its free provider (Docker) only when YouTube refuses a request
 deno            # JavaScript runtime yt-dlp needs for YouTube extraction (free, official wheel)
 # system: ffmpeg, ffprobe, tesseract-ocr, a bold TTF (Poppins-Bold) -> set FONT_BOLD in editor/layout.py
