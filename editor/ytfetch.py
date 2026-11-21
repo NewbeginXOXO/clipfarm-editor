@@ -15,6 +15,28 @@ COMMON = ['--force-ipv4', '--sleep-requests', '1', '--extractor-retries', '3', '
 LADDER = [('default', [], True), ('tv+web_safari', ['--extractor-args', 'youtube:player_client=tv,web_safari'], True),
           ('mweb', ['--extractor-args', 'youtube:player_client=mweb'], True), ('tv, no cookies', ['--extractor-args', 'youtube:player_client=tv'], False)]
 LAST = {'rung': '', 'tried': []}
+POT = {'tried': False, 'up': False}
+
+
+def ensure_pot():
+    """Starts the free bgutil PO token provider (Docker, port 4416) once per job, only after YouTube has refused a request.
+    The bgutil-ytdlp-pot-provider plugin (requirements.txt) then hands yt-dlp a PO token automatically. Never raises."""
+    if POT['tried']:
+        return POT['up']
+    POT['tried'] = True
+    ping = lambda: subprocess.run(['curl', '-s', '-m', '2', 'http://127.0.0.1:4416/ping'], capture_output=True, text=True).returncode == 0
+    try:
+        if not ping():
+            subprocess.run(['docker', 'run', '-d', '--name', 'bgutil', '--init', '-p', '4416:4416', 'brainicism/bgutil-ytdlp-pot-provider'], capture_output=True, text=True, timeout=240)
+            for _ in range(20):
+                if ping():
+                    break
+                time.sleep(2)
+        POT['up'] = ping()
+    except Exception as ex:
+        print('ytfetch: PO token provider not started:', ex)
+    print('ytfetch: PO token provider', 'up' if POT['up'] else 'unavailable')
+    return POT['up']
 
 
 def run(args, timeout, url=None):
@@ -37,6 +59,7 @@ def run(args, timeout, url=None):
         print(f'ytfetch: {name} failed: {err}')
         if not BLOCK.search(r.stderr or ''):
             break
+        ensure_pot()  # first refusal: bring up the PO token provider for the next rungs
         time.sleep(6 + 4 * i)
     LAST['rung'] = ''
     return r
