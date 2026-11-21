@@ -52,11 +52,9 @@ def download_window(source_url, start, end, work):
     """yt-dlp downloads ONLY the licensed window [start-1.5, end+1]. Returns (path, s, e) or raises RuntimeError(reason)."""
     s = max(0.0, float(start) - 1.5); e = float(end)
     src = os.path.join(work, 'src.mp4')
-    cmd = ['yt-dlp', '-q', '--no-progress', '-f', 'bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b', '--merge-output-format', 'mp4', '--remote-components', 'ejs:github',
-           '--download-sections', f'*{s}-{e + 1}', '--force-keyframes-at-cuts', '-o', src]
-    if os.path.exists('cookies.txt'):
-        cmd += ['--cookies', 'cookies.txt']
-    dl = subprocess.run(cmd + [source_url], capture_output=True, text=True, timeout=1200)
+    import ytfetch  # bot-wall ladder: cookies, other clients, PO token, no-cookie fallback
+    dl = ytfetch.run(['-q', '--no-progress', '-f', 'bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b', '--merge-output-format', 'mp4',
+                      '--download-sections', f'*{s}-{e + 1}', '--force-keyframes-at-cuts', '-o', src], 1200, source_url)
     if dl.returncode != 0 or not os.path.exists(src):
         errs = [l for l in (dl.stderr or '').splitlines() if 'ERROR' in l] or (dl.stderr or 'no output').splitlines()[-1:]
         why = errs[-1] if errs else 'unknown'
@@ -137,8 +135,12 @@ def diag(p):
                      'auth_cookies': {k: time.strftime('%Y-%m-%d', time.gmtime(int(names[k][4]))) if names[k][4].isdigit() and int(names[k][4]) > 0 else 'session' for k in key if k in names},
                      'missing': [k for k in ('LOGIN_INFO', 'SAPISID', '__Secure-3PSID') if k not in names]})
     vid = re.sub(r'[^\w-]', '', str(p.get('video_id') or 'NxgYtzq_n70'))[:11]
-    cmd = ['yt-dlp', '--simulate', '--no-warnings', '--remote-components', 'ejs:github', '-f', 'bv*[height<=1080]+ba/b'] + (['--cookies', 'cookies.txt'] if info['cookies_file'] else []) + ['https://www.youtube.com/watch?v=' + vid]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    import ytfetch
+    r = ytfetch.run(['--simulate', '--no-warnings', '-f', 'bv*[height<=1080]+ba/b'], 300, 'https://www.youtube.com/watch?v=' + vid)
+    info['ladder'] = ytfetch.LAST['tried']; info['ok_rung'] = ytfetch.LAST['rung']
+    try: info['pot_provider'] = subprocess.run(['curl', '-s', '-m', '5', 'http://127.0.0.1:4416/ping'], capture_output=True, text=True).stdout[:120]
+    except Exception: info['pot_provider'] = ''
+    info['yt_dlp_version'] = subprocess.run(['yt-dlp', '--version'], capture_output=True, text=True).stdout.strip()
     info['yt_dlp_ok'] = r.returncode == 0
     info['yt_dlp_error'] = ([l for l in (r.stderr or '').splitlines() if 'ERROR' in l] or [''])[-1][:300]
     print('DIAG ' + json.dumps(info))
