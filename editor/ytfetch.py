@@ -8,13 +8,24 @@ YouTube's "Sign in to confirm you're not a bot" wall hits datacenter IPs such as
 Every attempt uses IPv4, a short pause between requests and the JS challenge solver. It only moves to the next rung on a
 bot / sign-in / 403 / unavailable style error; any other error returns at once. The last attempt's result is returned.
 """
-import os, re, subprocess, time
+import os, re, shutil, subprocess, sys, time
 
 BLOCK = re.compile(r'sign in to confirm|not a bot|login_required|http error 403|forbidden|this content isn.t available|video unavailable|po token|precondition', re.I)
 COMMON = ['--force-ipv4', '--sleep-requests', '1', '--extractor-retries', '3', '--remote-components', 'ejs:github']
 LADDER = [('default', [], True), ('tv+web_safari', ['--extractor-args', 'youtube:player_client=tv,web_safari'], True),
           ('mweb', ['--extractor-args', 'youtube:player_client=mweb'], True), ('tv, no cookies', ['--extractor-args', 'youtube:player_client=tv'], False)]
 LAST = {'rung': '', 'tried': []}
+
+
+def _ffmpeg():
+    """Home PC (Windows) may have no ffmpeg on PATH: use the free imageio-ffmpeg binary for --download-sections."""
+    if shutil.which('ffmpeg'):
+        return []
+    try:
+        import imageio_ffmpeg
+        return ['--ffmpeg-location', imageio_ffmpeg.get_ffmpeg_exe()]
+    except Exception:
+        return []
 POT = {'tried': False, 'up': False}
 
 
@@ -45,7 +56,7 @@ def run(args, timeout, url=None):
     LAST['tried'] = []
     r = None
     for i, (name, extra, use_cookies) in enumerate(LADDER):
-        cmd = ['yt-dlp'] + COMMON + extra + (['--cookies', 'cookies.txt'] if (use_cookies and cookies) else []) + list(args) + ([url] if url else [])
+        cmd = [sys.executable, '-m', 'yt_dlp'] + COMMON + _ffmpeg() + extra + (['--cookies', 'cookies.txt'] if (use_cookies and cookies) else []) + list(args) + ([url] if url else [])
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired as ex:
