@@ -20,8 +20,8 @@ HYPE = re.compile(r'lmf?ao+|lol+|omg+|w+\b|\?{3,}|!{3,}|no way|clip (it|that)|br
 
 
 def ytdlp(args, timeout):
-    cmd = ['yt-dlp', '--no-progress', '--remote-components', 'ejs:github'] + (['--cookies', 'cookies.txt'] if os.path.exists('cookies.txt') else []) + args
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    import ytfetch  # bot-wall ladder (same as renders)
+    return ytfetch.run(['--no-progress'] + args[:-1], timeout, args[-1])
 
 
 def chat_bins(path):
