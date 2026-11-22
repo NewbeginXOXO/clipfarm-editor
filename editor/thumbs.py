@@ -57,11 +57,27 @@ def pick_two(src, dur, work, fc=None, n=10):
     return a, b
 
 
+# v149 (Newbegin, Nov 22 2026): a hook cut to 7 words must not end on a dangling word ("...GOES COMPLETELY WRONG IN").
+END_STOP = {'in', 'on', 'at', 'of', 'to', 'for', 'with', 'from', 'by', 'into', 'onto', 'as', 'and', 'or', 'but', 'so', 'the', 'a', 'an',
+            'is', 'are', 'was', 'were', 'be', 'his', 'her', 'their', 'my', 'your', 'our', 'its', 'this', 'that', 'than', 'then', 'when', 'while', 'after', 'before', 'gta'}
+
+
+def tidy_end(words, cut):
+    """Drops trailing filler/prepositions (and a lone 'GTA' whose '6' was cut off) so the hook reads as a complete phrase."""
+    words = list(words)
+    while len(words) > 2 and words[-1].strip(',.;:-').lower() in END_STOP and (cut or words[-1].strip(',.;:-').lower() != 'gta'):
+        words.pop()
+    if words:
+        words[-1] = words[-1].rstrip(',;:-')
+    return words
+
+
 def clean_hook(text):
     t = re.sub(r'#\w+', ' ', str(text or ''))
     t = re.sub(r'[^\w\s?!\'.,&-]', ' ', t)
     t = re.sub(r'\s+', ' ', t).strip().upper()
-    return ' '.join(t.split()[:MAX_WORDS])
+    w = t.split()
+    return ' '.join(tidy_end(w[:MAX_WORDS], len(w) > MAX_WORDS))
 
 
 def fit(text, start_px=92, min_px=46, plate=0):
