@@ -292,7 +292,8 @@ def main():
             sys.exit(1)
         hook = hook_from(p.get('title') or '')
         r = subprocess.run([sys.executable, os.path.join(HERE, 'render_edit.py'), '--source', src, '--start', '0', '--end', str(e - s),
-                            '--hook', hook, '--title', ' '.join(x for x in (p.get('title', ''), str(p.get('context', ''))[:200]) if x), '--clip-id', cid, '--out', work], text=True)  # context = campaign + source title, so the GTA 6 check sees the footage source
+                            '--hook', hook, '--title', ' '.join(x for x in (p.get('title', ''), str(p.get('context', ''))[:200]) if x), '--clip-id', cid, '--out', work,
+                            '--style', 'A', '--words-out', os.path.join(work, 'words.json')], text=True)  # context = campaign + source title, so the GTA 6 check sees the footage source
         rp = os.path.join(work, f'{cid}.report.json')
         rep = json.load(open(rp)) if os.path.exists(rp) else {}
         if r.returncode != 0:
@@ -314,8 +315,28 @@ def main():
             thumb_b = pre + os.path.basename(res['B'][0]) if 'B' in res else ''
         except Exception as ex:
             print('thumbnail skipped:', ex)
+        clips = [{'url': url, 'thumb': thumb, 'thumb_b': thumb_b, 'style': 'Style A · Clean Safe-Zone', 'style_key': 'A', 'title': hook, 'dur': rep.get('checks', {}).get('duration_s'), 'facecam': bool(rep.get('facecam'))}]
+        # v150 (Newbegin, Nov 22 2026): every job sends TWO completely different styles to choose from. Style B 'Punch Zoom' reuses the
+        # same streamer-only words and facecam box and passes the same verify_edit.py safe-zone law. A Style B failure never blocks Style A.
+        try:
+            wb = os.path.join(work, 'B'); os.makedirs(wb, exist_ok=True)
+            cmd = [sys.executable, os.path.join(HERE, 'render_edit.py'), '--source', src, '--start', '0', '--end', str(e - s), '--hook', hook,
+                   '--title', ' '.join(x for x in (p.get('title', ''), str(p.get('context', ''))[:200]) if x), '--clip-id', cid, '--out', wb, '--style', 'B',
+                   '--transcript', os.path.join(work, 'words.json')]
+            if rep.get('facecam'):
+                cmd += ['--facecam', ','.join(str(int(v)) for v in rep['facecam'])]
+            rb = subprocess.run(cmd, text=True)
+            rpb = os.path.join(wb, f'{cid}.report.json'); repb = json.load(open(rpb)) if os.path.exists(rpb) else {}
+            if rb.returncode == 0:
+                nb = f'{cid}-{run}-b.mp4'; os.rename(os.path.join(wb, f'{cid}.mp4'), os.path.join(wb, nb)); upload([os.path.join(wb, nb)])
+                clips.append({'url': f'https://github.com/{repo}/releases/download/renders/{nb}', 'thumb': thumb, 'thumb_b': thumb_b, 'style': 'Style B · Punch Zoom', 'style_key': 'B',
+                              'title': hook, 'dur': repb.get('checks', {}).get('duration_s'), 'facecam': bool(rep.get('facecam'))})
+            else:
+                print('Style B rejected by verify_edit.py:', '; '.join(repb.get('issues', []) or ['render error']))
+        except Exception as ex:
+            print('Style B skipped:', ex)
         post(cb, {'status': 'completed', 'seconds': round(time.time() - t0),
-                  'clips': [{'url': url, 'thumb': thumb, 'thumb_b': thumb_b, 'style': 'Precision Safe-Zone', 'title': hook, 'dur': rep.get('checks', {}).get('duration_s')}],
+                  'clips': clips,
                   'verify': {'pass': True, 'attempt': rep.get('attempt'), 'checks': {**(rep.get('checks') or {}), **SYNC}}})
         print('READY FOR APPROVALS:', url)
     except SystemExit:
