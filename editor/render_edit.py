@@ -140,11 +140,16 @@ def fit_text(text, zone, start_px, max_lines, stroke_ratio=0.09):
     return None
 
 
-def draw_text_png(path, fit, zone, fill=(255, 255, 255), stroke_fill=(0, 0, 0), badge=None):
+def draw_text_png(path, fit, zone, fill=(255, 255, 255), stroke_fill=(0, 0, 0), badge=None, plate=None):
     img = Image.new('RGBA', (L.W, L.H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     font = ImageFont.truetype(L.FONT_BOLD, fit['px'])
     top = zone[0] + ((zone[1] - zone[0]) - fit['block_h']) // 2 + fit['stroke']
+    if plate:  # Style B: solid hook plate, clamped inside the hook band and x 90-990 (verify_edit.py checks every pixel)
+        bx = [d.textbbox((L.W // 2, top + i * fit['lh']), ln, font=font, anchor='ma', stroke_width=fit['stroke']) for i, ln in enumerate(fit['lines'])]
+        x0, x1 = max(L.SAFE_X[0] + 2, min(b[0] for b in bx) - 22), min(L.SAFE_X[1] - 2, max(b[2] for b in bx) + 22)
+        y0, y1 = max(L.HOOK[0] + 2, min(b[1] for b in bx) - 12), min(L.HOOK[1] - 2, max(b[3] for b in bx) + 12)
+        d.rounded_rectangle((x0, y0, x1, y1), radius=18, fill=plate)
     boxes = []
     for i, line in enumerate(fit['lines']):
         y = top + i * fit['lh']
@@ -160,7 +165,9 @@ def draw_text_png(path, fit, zone, fill=(255, 255, 255), stroke_fill=(0, 0, 0), 
 
 
 # ---------------- composition
-def base_filter(cam, sw, sh_):
+def base_filter(cam, sw, sh_, style='A'):
+    if style == 'B':
+        return base_filter_b(cam, sw, sh_)
     """Background: blurred, darkened gameplay fill. CENTER zone (400-1320): facecam on top + full 16:9 gameplay (HUD intact)."""
     zone_h = L.CENTER[1] - L.CENTER[0]               # 920
     game_h = int(L.W * 9 / 16) // 2 * 2              # 1080x606 keeps the whole HUD/minimap
@@ -178,8 +185,36 @@ def base_filter(cam, sw, sh_):
     return ';'.join(f)
 
 
-def render(seg, cam, sw, sh_, hook_png, caps, clean, final):
-    fc = base_filter(cam, sw, sh_)
+def base_filter_b(cam, sw, sh_):
+    """Style B 'Punch Zoom' (v150): a completely different look from Style A. Dark solid backdrop, gameplay ZOOMED to fill the
+    whole CENTER zone (1080x920, centre of the action, bigger on a phone), facecam as a white-bordered inset in the top-right of
+    the gameplay. Everything stays inside CENTER 400-1320; no text there (verify_edit.py checks)."""
+    zone_h = L.CENTER[1] - L.CENTER[0]
+    gw = max(L.W, int(round(sw * zone_h / sh_ / 2)) * 2)
+    f = [f"[0:v]scale={L.W}:{L.H}:force_original_aspect_ratio=increase,crop={L.W}:{L.H},boxblur=40:3,eq=brightness=-0.62:saturation=0.35[bg]",
+         f"[0:v]scale={gw}:{zone_h},crop={L.W}:{zone_h}[game]",
+         f"[bg][game]overlay=x=0:y={L.CENTER[0]}[b1]"]
+    if cam:
+        x, y, w, h = cam
+        cw = 360; ch = int(cw * h / w) // 2 * 2
+        if ch > 330:
+            ch = 330; cw = int(ch * w / h) // 2 * 2
+        f.append(f"[0:v]crop={w}:{h}:{x}:{y},scale={cw}:{ch},pad={cw + 12}:{ch + 12}:6:6:white[cam]")
+        f.append(f"[b1][cam]overlay=x={L.W - cw - 12 - 28}:y={L.CENTER[0] + 28}[base]")
+    else:
+        f[-1] = f[-1].replace('[b1]', '[base]')
+    return ';'.join(f)
+
+
+# The two editor styles sent together for every clip (v150, Newbegin): completely different looks to choose from.
+STYLES = {
+    'A': {'name': 'Clean Safe-Zone', 'hook_fill': (255, 230, 0), 'plate': None, 'cap_fill': (255, 255, 255), 'cap_px': L.CAP_FONT_PX, 'cap_words': L.CAP_MAX_WORDS},
+    'B': {'name': 'Punch Zoom', 'hook_fill': (255, 255, 255), 'plate': (220, 20, 60, 255), 'cap_fill': (255, 230, 0), 'cap_px': 88, 'cap_words': 2},
+}
+
+
+def render(seg, cam, sw, sh_, hook_png, caps, clean, final, style='A'):
+    fc = base_filter(cam, sw, sh_, style)
     enc = ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-r', str(L.FPS), '-c:a', 'aac', '-b:a', '160k', '-ar', '48000']
     # clean = identical edit with no text (verifier diffs against it); near-lossless so only our text differs
     sh(['ffmpeg', '-y', '-v', 'error', '-i', seg, '-filter_complex', fc, '-map', '[base]', '-map', '0:a', '-c:v', 'libx264', '-qp', '0', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-r', str(L.FPS), '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', clean])
@@ -197,7 +232,9 @@ def main():
     ap.add_argument('--hook', required=True); ap.add_argument('--clip-id', default='clip'); ap.add_argument('--out', default='out')
     ap.add_argument('--facecam'); ap.add_argument('--transcript'); ap.add_argument('--whisper-model', default='small.en')
     ap.add_argument('--title', default=''); ap.add_argument('--max-revisions', type=int, default=4); ap.add_argument('--allow-non-gta', action='store_true')
+    ap.add_argument('--style', default='A', choices=sorted(STYLES)); ap.add_argument('--words-out')
     a = ap.parse_args()
+    ST = STYLES[a.style]
     os.makedirs(a.out, exist_ok=True)
     work = os.path.join(a.out, 'work'); os.makedirs(work, exist_ok=True)
     log = lambda *m: print('[render]', *m, flush=True)
@@ -223,9 +260,12 @@ def main():
             words, spk = streamer_only(seg, words, cam)
         except Exception as ex:  # never caption unverified speech: on a failure the clip gets no talking captions
             log('speaker filter failed, no talking captions:', ex); words, spk = [], {'method': 'failed: ' + str(ex)[:80], 'phrases': 0, 'kept': 0, 'dropped': 0}
+    if a.words_out:  # Style B reuses the streamer-only words (same seg), so both styles caption the same speech
+        json.dump(words, open(a.words_out, 'w'))
+    log(f"style {a.style} ({ST['name']})")
     log(f"captions: streamer only · {spk['method']} · kept {spk['kept']}/{spk['phrases']} phrases" + (f" · dropped: {spk.get('dropped_text', '')}" if spk.get('dropped') else ''))
 
-    hook_px, cap_px, max_words = L.HOOK_FONT_PX, L.CAP_FONT_PX, L.CAP_MAX_WORDS
+    hook_px, cap_px, max_words = L.HOOK_FONT_PX, ST['cap_px'], ST['cap_words']
     final, clean = os.path.join(a.out, f'{a.clip_id}.mp4'), os.path.join(work, 'clean.mp4')
     report = None
     for attempt in range(1, a.max_revisions + 2):
@@ -233,11 +273,11 @@ def main():
         # Set CLIPFARM_AD_BADGE (e.g. "#AD · PAID PARTNERSHIP") only for a real paid partnership; verify_edit.py then checks it on every frame.
         badge = os.environ.get('CLIPFARM_AD_BADGE', '').strip() or None
         hook_zone = L.HOOK_TEXT if badge else L.HOOK
-        hf = fit_text(a.hook.upper(), hook_zone, hook_px, L.HOOK_MAX_LINES)
+        hf = fit_text(a.hook.upper(), (hook_zone[0] + 14, hook_zone[1] - 14) if ST['plate'] else hook_zone, hook_px, L.HOOK_MAX_LINES)
         if not hf:
             log('REJECTED: hook cannot fit 220-380 inside x 90-990'); sys.exit(2)
         hook_png = os.path.join(work, 'hook.png')
-        hook_boxes = draw_text_png(hook_png, hf, hook_zone, fill=(255, 230, 0), badge=badge)
+        hook_boxes = draw_text_png(hook_png, hf, hook_zone, fill=ST['hook_fill'], badge=badge, plate=ST['plate'])
         caps = chunk_words(words, max_words)
         for i, c in enumerate(caps):
             cf = fit_text(c['text'], L.CAPS, cap_px, 2)
@@ -246,11 +286,11 @@ def main():
             if not cf:
                 log(f'REJECTED: caption "{c["text"]}" cannot fit'); sys.exit(2)
             c['png'] = os.path.join(work, f'cap{i:03d}.png'); c['lines'] = cf['lines']; c['px'] = cf['px']
-            c['boxes'] = draw_text_png(c['png'], cf, L.CAPS)
+            c['boxes'] = draw_text_png(c['png'], cf, L.CAPS, fill=ST['cap_fill'])
         plan = {'clip_id': a.clip_id, 'hook': {'text': a.hook.upper(), 'lines': hf['lines'], 'px': hf['px'], 'boxes': hook_boxes},
-                'captions': [{k: c[k] for k in ('text', 'start', 'end', 'word_start', 'lines', 'px', 'boxes')} for c in caps], 'facecam': cam, 'attempt': attempt, **({'disclosure': badge} if badge else {})}
+                'captions': [{k: c[k] for k in ('text', 'start', 'end', 'word_start', 'lines', 'px', 'boxes')} for c in caps], 'facecam': cam, 'attempt': attempt, 'style': ST['name'], **({'disclosure': badge} if badge else {})}
         json.dump(plan, open(os.path.join(work, 'plan.json'), 'w'), indent=1)
-        render(seg, cam, sw, sh_, hook_png, caps, clean, final)
+        render(seg, cam, sw, sh_, hook_png, caps, clean, final, a.style)
         report = verify(final, clean, plan)
         report['attempt'] = attempt
         log(f'attempt {attempt}:', 'PASS' if report['pass'] else 'FAIL ' + '; '.join(report['issues']))
