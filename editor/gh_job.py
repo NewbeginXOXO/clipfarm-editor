@@ -57,18 +57,103 @@ def fetched_path(source_url, start, end):
     return os.path.join(FETCHED, hashlib.sha1(f'{source_url}|{float(start)}|{float(end)}'.encode()).hexdigest()[:16] + '.mp4')
 
 
+SYNC = {}  # v147: source A/V sync measurements for the callback (logged on the Queue row)
+MAX_SRC_SYNC_S = 0.08  # source window: audio and video must start together and run the same length (keyframe-snap offsets show up here)
+
+
+def _ff():
+    """ffmpeg binary: PATH first, else the free imageio-ffmpeg build (home PC on Windows)."""
+    import shutil
+    if shutil.which('ffmpeg'):
+        return 'ffmpeg'
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return 'ffmpeg'
+
+
+def src_sync(path):
+    """v147 (Newbegin, Nov 22 2026): measures the downloaded window. Returns (start_diff_s, dur_diff_s) or None when ffprobe is missing.
+    yt-dlp --download-sections cuts the DASH video and audio streams separately; a cut that snaps the video to an earlier keyframe
+    leaves both streams starting at 0 but the picture runs ahead of (or behind) the sound. That shows up as a duration gap."""
+    import shutil
+    if not shutil.which('ffprobe'):
+        return None
+    try:
+        p = json.loads(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_type,start_time,duration', '-show_entries', 'format=duration',
+                                       '-of', 'json', path], capture_output=True, text=True, timeout=60).stdout)
+        v = next(x for x in p['streams'] if x['codec_type'] == 'video'); a = next(x for x in p['streams'] if x['codec_type'] == 'audio')
+        fd = float(p['format']['duration'])
+        return (abs(float(v.get('start_time') or 0) - float(a.get('start_time') or 0)),
+                abs(float(v.get('duration') or fd) - float(a.get('duration') or fd)))
+    except Exception as ex:
+        print('src_sync: could not probe', ex)
+        return (9.9, 9.9)
+
+
+def sync_ok(path, label):
+    r = src_sync(path)
+    if r is None:
+        return True
+    SYNC.update({'source': label, 'src_av_start_ms': round(r[0] * 1000, 1), 'src_av_duration_ms': round(r[1] * 1000, 1)})
+    ok = r[0] <= MAX_SRC_SYNC_S and r[1] <= MAX_SRC_SYNC_S
+    print(f'source A/V sync ({label}): start {r[0]*1000:.0f} ms, length {r[1]*1000:.0f} ms ->', 'OK' if ok else 'MISALIGNED')
+    return ok
+
+
+def fetch_exact(source_url, s, e, out):
+    """v147: frame-accurate window. yt-dlp only resolves the stream URLs (same bot-wall ladder); ONE ffmpeg pass then seeks the video
+    and the audio to the SAME instant and re-encodes both (accurate seek, constant 30 fps), so sound and picture cannot drift apart."""
+    import ytfetch
+    r = ytfetch.run(['-q', '--no-warnings', '-f', 'bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b', '-j'], 600, source_url)
+    if r.returncode != 0 or not (r.stdout or '').strip():
+        return False, ([l for l in (r.stderr or '').splitlines() if 'ERROR' in l] or ['could not resolve stream URLs'])[-1]
+    info = json.loads(r.stdout.strip().splitlines()[-1])
+    fmts = info.get('requested_formats') or [info]
+    vf = next((f for f in fmts if f.get('vcodec') not in (None, 'none')), None)
+    af = next((f for f in fmts if f.get('acodec') not in (None, 'none')), None)
+    if not vf or not af:
+        return False, 'no separate video/audio formats'
+    dur = (e + 1) - s
+    cmd, idx = [_ff(), '-y', '-v', 'error'], {}
+    for k, f in (('v', vf), ('a', af)):
+        if k == 'a' and af is vf:
+            idx['a'] = idx['v']; continue
+        hdr = ''.join(f'{hk}: {hv}\r\n' for hk, hv in (f.get('http_headers') or {}).items())
+        cmd += (['-headers', hdr] if hdr and str(f['url']).startswith('http') else []) + ['-ss', f'{s:.3f}', '-t', f'{dur:.3f}', '-i', f['url']]
+        idx[k] = len(idx)
+    cmd += ['-map', f"{idx['v']}:v:0", '-map', f"{idx['a']}:a:0", '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '14', '-pix_fmt', 'yuv420p',
+            '-fps_mode', 'cfr', '-r', '30', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-af', 'aresample=async=1:first_pts=0',
+            '-t', f'{dur:.3f}', '-movflags', '+faststart', out]
+    try:
+        x = subprocess.run(cmd, capture_output=True, text=True, timeout=1500)
+    except subprocess.TimeoutExpired:
+        return False, 'exact fetch timed out'
+    if x.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) < 10000:
+        return False, ('exact fetch failed: ' + (x.stderr or '')[-300:]).strip()
+    return True, 'exact'
+
+
 def download_window(source_url, start, end, work):
-    """yt-dlp downloads ONLY the licensed window [start-1.5, end+1]. Returns (path, s, e) or raises RuntimeError(reason).
+    """Downloads ONLY the licensed window [start-1.5, end+1]. Returns (path, s, e) or raises RuntimeError(reason).
     v121: the home PC (fetch stage) downloads it into fetched/ and hands it to the GitHub render stage as an artifact, so YouTube
-    only ever sees a home internet connection. If no pre-fetched file exists, the runner tries itself (ytfetch ladder)."""
+    only ever sees a home internet connection. If no pre-fetched file exists, the runner tries itself (ytfetch ladder).
+    v147: frame-accurate fetch first (fetch_exact); every window must pass the source A/V sync check before it is rendered."""
     s = max(0.0, float(start) - 1.5); e = float(end)
     pre = fetched_path(source_url, start, end)
     if os.path.exists(pre) and os.path.getsize(pre) > 10000 and STAGE != 'fetch':
-        print('using the clip window fetched by the home PC')
-        return pre, s, e
+        if sync_ok(pre, 'home PC'):
+            print('using the clip window fetched by the home PC')
+            return pre, s, e
+        print('home PC window is out of sync: fetching it again here')
     if STAGE == 'fetch':
         os.makedirs(FETCHED, exist_ok=True)
     src = pre if STAGE == 'fetch' else os.path.join(work, 'src.mp4')
+    ok, how = fetch_exact(source_url, s, e, src)
+    print('exact fetch:', how)
+    if ok and sync_ok(src, 'exact fetch'):
+        return src, s, e
     import ytfetch  # bot-wall ladder: cookies, other clients, PO token, no-cookie fallback
     dl = ytfetch.run(['-q', '--no-progress', '-f', 'bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b', '--merge-output-format', 'mp4',
                       '--download-sections', f'*{s}-{e + 1}', '--force-keyframes-at-cuts', '-o', src], 1200, source_url)
@@ -78,6 +163,8 @@ def download_window(source_url, start, end, work):
         hint = ' | fix: refresh the YT_COOKIES secret (cookies expired or signed out)' if re.search(r'sign in|cookies|bot', why, re.I) else ''
         print((dl.stderr or '')[-3000:])
         raise RuntimeError(('Download failed: ' + why.replace('ERROR: ', ''))[:330] + hint)
+    if not sync_ok(src, 'yt-dlp sections'):
+        raise RuntimeError(f"Source audio/video out of sync (start {SYNC.get('src_av_start_ms')} ms, length {SYNC.get('src_av_duration_ms')} ms): not rendered")
     return src, s, e
 
 
@@ -229,7 +316,7 @@ def main():
             print('thumbnail skipped:', ex)
         post(cb, {'status': 'completed', 'seconds': round(time.time() - t0),
                   'clips': [{'url': url, 'thumb': thumb, 'thumb_b': thumb_b, 'style': 'Precision Safe-Zone', 'title': hook, 'dur': rep.get('checks', {}).get('duration_s')}],
-                  'verify': {'pass': True, 'attempt': rep.get('attempt'), 'checks': rep.get('checks')}})
+                  'verify': {'pass': True, 'attempt': rep.get('attempt'), 'checks': {**(rep.get('checks') or {}), **SYNC}}})
         print('READY FOR APPROVALS:', url)
     except SystemExit:
         raise
