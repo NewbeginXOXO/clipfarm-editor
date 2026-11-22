@@ -9,7 +9,7 @@ Permanent project rules for the Clip Farm (SpeedologyClipz + Clip It You're It).
 | Platform top UI | 0 to 210 | Nothing of ours |
 | TOP HOOK caption | 220 to 380 | Hook only: max 7 words, max 2 lines, centered on X 540 |
 | CENTER content | 400 to 1320 | Facecam + GTA 6 gameplay only. ZERO text, captions or graphics |
-| BOTTOM spoken captions | 1350 to 1520 | Word-synced captions of what is actually said, 2 to 3 word chunks |
+| BOTTOM spoken captions | 1350 to 1520 | Word-synced captions of what the STREAMER actually says, 2 to 3 word chunks. Never game characters (NPCs, cutscenes, phone calls, radio): `editor/speaker.py` keeps the streamer's phrases only |
 | Platform bottom UI | 1540 to 1920 | Nothing of ours |
 
 - Horizontal text safe area: X 90 to 990 on every line (no side cut-off).
