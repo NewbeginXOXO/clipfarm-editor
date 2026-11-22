@@ -215,6 +215,15 @@ def main():
     log(f'{len(words)} spoken words')
     cam = [int(v) for v in a.facecam.split(',')] if a.facecam else detect_facecam(seg, sw, sh_)
     log('facecam', cam or 'none (gameplay-only layout)')
+    # v148 (Newbegin, Nov 22 2026): talking captions are the STREAMER's words only, never game characters (speaker.py, $0, no AI).
+    spk = {'method': 'not run', 'phrases': 0, 'kept': 0, 'dropped': 0}
+    if not a.transcript:
+        try:
+            from speaker import streamer_only
+            words, spk = streamer_only(seg, words, cam)
+        except Exception as ex:  # never caption unverified speech: on a failure the clip gets no talking captions
+            log('speaker filter failed, no talking captions:', ex); words, spk = [], {'method': 'failed: ' + str(ex)[:80], 'phrases': 0, 'kept': 0, 'dropped': 0}
+    log(f"captions: streamer only · {spk['method']} · kept {spk['kept']}/{spk['phrases']} phrases" + (f" · dropped: {spk.get('dropped_text', '')}" if spk.get('dropped') else ''))
 
     hook_px, cap_px, max_words = L.HOOK_FONT_PX, L.CAP_FONT_PX, L.CAP_MAX_WORDS
     final, clean = os.path.join(a.out, f'{a.clip_id}.mp4'), os.path.join(work, 'clean.mp4')
@@ -251,6 +260,7 @@ def main():
         hook_px, cap_px = int(hook_px * 0.9), int(cap_px * 0.9)
         max_words = max(2, max_words - 1)
     report.update({'clip_id': a.clip_id, 'final': final, 'hook': a.hook, 'facecam': cam, 'words': len(words)})
+    report.setdefault('checks', {}).update({'captions_speaker': 'streamer only: ' + spk['method'], 'caption_phrases_kept': spk['kept'], 'caption_phrases_dropped': spk['dropped']})
     json.dump(report, open(os.path.join(a.out, f'{a.clip_id}.report.json'), 'w'), indent=2)
     if not report['pass']:
         os.replace(final, os.path.join(work, 'rejected.mp4'))
