@@ -35,7 +35,7 @@ def hook_from(title):
         keep = [i for i, w in enumerate(words) if re.match(r'(?i)gta|6\??!?$|vi\??$', w)]
         drop = [i for i in range(len(words)) if i not in keep][len(words) - 7:] if False else [i for i in reversed(range(len(words))) if i not in keep][:len(words) - 7]
         words = [w for i, w in enumerate(words) if i not in set(drop)]
-    while words and words[-1].lower() in {'and', 'or', 'but', 'so', 'with', 'to', 'of'}:
+    while len(words) > 2 and words[-1].strip(',.;:-').lower() in {'and', 'or', 'but', 'so', 'with', 'to', 'of', 'in', 'on', 'at', 'for', 'from', 'by', 'into', 'as', 'the', 'a', 'an', 'is', 'his', 'her', 'their', 'my', 'your', 'this', 'that', 'when', 'while'}:  # v149: no dangling last word
         words.pop()
     return ' '.join(words) or 'GTA 6 moment'
 
