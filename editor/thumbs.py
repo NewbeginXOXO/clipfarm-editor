@@ -138,6 +138,8 @@ def check(boxes):
 
 def make(src, t, jpg, text, style, work, fc=None):
     im = frame(src, t, os.path.join(work, f'opt{style}.png'), fc)
+    # v175 (Richard): the text-free picture is uploaded too, so the dashboard can put HIS words on it live (no re-render)
+    im.save(jpg[:-4] + '-base.jpg', quality=90, optimize=True, subsampling=0)
     im, boxes = draw(im, text, style)
     check(boxes)
     im.save(jpg, quality=92, optimize=True, progressive=True, subsampling=0)
