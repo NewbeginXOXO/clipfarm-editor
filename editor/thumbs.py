@@ -168,8 +168,9 @@ def make_options(src, out_stem, hook_a, hook_b, work, fc=None, only=None, t=None
     res = {}
     if only in ('A', 'B') and t is not None:
         times = {only: float(t)}
-    elif only in ('A', 'B') and avoid:
-        tn = pick_new(src, dur, work, avoid, fc)
+    elif only in ('A', 'B') and avoid is not None:
+        (_, ta0, _), (_, tb0, _) = pick_two(src, dur, work, fc)  # the original best frame is never offered again
+        tn = pick_new(src, dur, work, list(avoid) + [ta0 if only == 'A' else tb0], fc)
         if tn is None:
             raise RuntimeError('no new frame left (every part of the clip was already used)')
         times = {only: tn}
