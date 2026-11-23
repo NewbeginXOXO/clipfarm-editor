@@ -212,7 +212,8 @@ def thumbs(p):
             text = re.sub(r"[^\w\s?!'.,&#-]", '', str(it.get('text') or ''))[:60].strip()
             work = os.path.abspath(os.path.join('thumbs', cid)); os.makedirs(work, exist_ok=True)
             seg, fc = clean_source(it, work)
-            res = make_options(seg, os.path.join('thumbs', name[:-4]), str(it.get('hook') or ''), str(it.get('thumb_b') or ''), work, fc=fc, only=opt, t=t, text=text, suffix=f'-r{rev}' if rev else '')
+            avoid = [min(max(float(a), 0.0), 180.0) for a in (it.get('avoid') or [])[:16] if str(a).replace('.', '', 1).isdigit()]
+            res = make_options(seg, os.path.join('thumbs', name[:-4]), str(it.get('hook') or ''), str(it.get('thumb_b') or ''), work, fc=fc, only=opt, t=t, text=text, suffix=f'-r{rev}' if rev else '', avoid=avoid)
             if not res: raise RuntimeError('no thumbnail made')
             upload([v[0] for v in res.values()])
             o = {'clip_id': it.get('clip_id'), 'ok': True, 'rev': rev}
