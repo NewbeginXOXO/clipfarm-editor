@@ -215,7 +215,7 @@ def thumbs(p):
             avoid = [min(max(float(a), 0.0), 180.0) for a in (it.get('avoid') or [])[:16] if str(a).replace('.', '', 1).isdigit()]
             res = make_options(seg, os.path.join('thumbs', name[:-4]), str(it.get('hook') or ''), str(it.get('thumb_b') or ''), work, fc=fc, only=opt, t=t, text=text, suffix=f'-r{rev}' if rev else '', avoid=avoid if it.get('fresh') else None)
             if not res: raise RuntimeError('no thumbnail made')
-            upload([v[0] for v in res.values()])
+            upload([v[0] for v in res.values()] + [v[0][:-4] + '-base.jpg' for v in res.values() if os.path.exists(v[0][:-4] + '-base.jpg')])
             o = {'clip_id': it.get('clip_id'), 'ok': True, 'rev': rev}
             for k, (jpg, tt, tx) in res.items():
                 o['thumb_' + k.lower()] = pre + os.path.basename(jpg); o['t_' + k.lower()] = tt; o['text_' + k.lower()] = tx
@@ -296,7 +296,7 @@ def main():
         hook = hook_from(p.get('title') or '')
         r = subprocess.run([sys.executable, os.path.join(HERE, 'render_edit.py'), '--source', src, '--start', '0', '--end', str(e - s),
                             '--hook', hook, '--title', ' '.join(x for x in (p.get('title', ''), str(p.get('context', ''))[:200]) if x), '--clip-id', cid, '--out', work,
-                            '--style', 'A', '--words-out', os.path.join(work, 'words.json')], text=True)  # context = campaign + source title, so the GTA 6 check sees the footage source
+                            '--style', 'X', '--words-out', os.path.join(work, 'words.json')], text=True)  # v175: ONE Hype FX edit per clip  # context = campaign + source title, so the GTA 6 check sees the footage source
         rp = os.path.join(work, f'{cid}.report.json')
         rep = json.load(open(rp)) if os.path.exists(rp) else {}
         if r.returncode != 0:
@@ -312,32 +312,14 @@ def main():
         try:  # a thumbnail problem never blocks a verified edit. Options come from clean.mp4 (same edit, no text): no talking captions.
             from thumbs import make_options
             res = make_options(os.path.join(work, 'work', 'clean.mp4'), os.path.join(work, name[:-4]), hook, str(p.get('thumb_b') or ''), os.path.join(work, 'thumbs'))
-            upload([v[0] for v in res.values()])
+            upload([v[0] for v in res.values()] + [v[0][:-4] + '-base.jpg' for v in res.values() if os.path.exists(v[0][:-4] + '-base.jpg')])
             pre = f'https://github.com/{repo}/releases/download/renders/'
             thumb = pre + os.path.basename(res['A'][0]) if 'A' in res else ''
             thumb_b = pre + os.path.basename(res['B'][0]) if 'B' in res else ''
         except Exception as ex:
             print('thumbnail skipped:', ex)
-        clips = [{'url': url, 'thumb': thumb, 'thumb_b': thumb_b, 'style': 'Style A · Clean Safe-Zone', 'style_key': 'A', 'title': hook, 'dur': rep.get('checks', {}).get('duration_s'), 'facecam': bool(rep.get('facecam'))}]
-        # v150 (Newbegin, Nov 22 2026): every job sends TWO completely different styles to choose from. Style B 'Punch Zoom' reuses the
-        # same streamer-only words and facecam box and passes the same verify_edit.py safe-zone law. A Style B failure never blocks Style A.
-        try:
-            wb = os.path.join(work, 'B'); os.makedirs(wb, exist_ok=True)
-            cmd = [sys.executable, os.path.join(HERE, 'render_edit.py'), '--source', src, '--start', '0', '--end', str(e - s), '--hook', hook,
-                   '--title', ' '.join(x for x in (p.get('title', ''), str(p.get('context', ''))[:200]) if x), '--clip-id', cid, '--out', wb, '--style', 'B',
-                   '--transcript', os.path.join(work, 'words.json')]
-            if rep.get('facecam'):
-                cmd += ['--facecam', ','.join(str(int(v)) for v in rep['facecam'])]
-            rb = subprocess.run(cmd, text=True)
-            rpb = os.path.join(wb, f'{cid}.report.json'); repb = json.load(open(rpb)) if os.path.exists(rpb) else {}
-            if rb.returncode == 0:
-                nb = f'{cid}-{run}-b.mp4'; os.rename(os.path.join(wb, f'{cid}.mp4'), os.path.join(wb, nb)); upload([os.path.join(wb, nb)])
-                clips.append({'url': f'https://github.com/{repo}/releases/download/renders/{nb}', 'thumb': thumb, 'thumb_b': thumb_b, 'style': 'Style B · Punch Zoom', 'style_key': 'B',
-                              'title': hook, 'dur': repb.get('checks', {}).get('duration_s'), 'facecam': bool(rep.get('facecam'))})
-            else:
-                print('Style B rejected by verify_edit.py:', '; '.join(repb.get('issues', []) or ['render error']))
-        except Exception as ex:
-            print('Style B skipped:', ex)
+        clips = [{'url': url, 'thumb': thumb, 'thumb_b': thumb_b, 'style': 'Hype FX', 'style_key': 'X', 'title': hook, 'dur': rep.get('checks', {}).get('duration_s'), 'facecam': bool(rep.get('facecam'))}]
+        # v175 (Richard, Nov 23 2026): ONE edit per clip (Hype FX). The second style (Style B) is no longer rendered.
         post(cb, {'status': 'completed', 'seconds': round(time.time() - t0),
                   'clips': clips,
                   'verify': {'pass': True, 'attempt': rep.get('attempt'), 'checks': {**(rep.get('checks') or {}), **SYNC}}})
