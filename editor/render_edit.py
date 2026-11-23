@@ -165,7 +165,9 @@ def draw_text_png(path, fit, zone, fill=(255, 255, 255), stroke_fill=(0, 0, 0), 
 
 
 # ---------------- composition
-def base_filter(cam, sw, sh_, style='A'):
+def base_filter(cam, sw, sh_, style='A', fx=None):
+    if style == 'X':
+        return base_filter_x(cam, sw, sh_, fx or {})
     if style == 'B':
         return base_filter_b(cam, sw, sh_)
     """Background: blurred, darkened gameplay fill. CENTER zone (400-1320): facecam on top + full 16:9 gameplay (HUD intact)."""
@@ -206,15 +208,81 @@ def base_filter_b(cam, sw, sh_):
     return ';'.join(f)
 
 
+def audio_peaks(seg, dur, max_n=6, gap=3.5):
+    """v175 Hype FX: the loudest moments (streamer yelling, explosions, crashes) from the clip's own audio. Returns hit times
+    (seconds, loudest first). $0, no AI: 50 ms RMS loudness, smoothed, local maxima above the 88th percentile, at least `gap` s apart."""
+    try:
+        import numpy as np
+        raw = subprocess.run(['ffmpeg', '-v', 'error', '-i', seg, '-ac', '1', '-ar', '8000', '-f', 's16le', '-'], capture_output=True).stdout
+        a = np.frombuffer(raw, dtype=np.int16).astype(np.float32)
+        win = 400; n = a.size // win
+        if n < 40:
+            return []
+        db = 20 * np.log10(np.sqrt((a[:n * win].reshape(n, win) ** 2).mean(1)) + 1)
+        sm = np.convolve(db, np.ones(4) / 4, 'same')
+        thr = max(float(np.percentile(sm, 88)), float(np.median(sm)) + 6)
+        def onset(i):  # hit on the moment it gets loud, not the middle of the yell
+            while i > 0 and sm[i - 1] >= thr:
+                i -= 1
+            return i * 0.05
+        cand = sorted(((float(sm[i]), onset(i)) for i in range(1, n - 1) if sm[i] >= thr and sm[i] >= sm[i - 1] and sm[i] >= sm[i + 1]), reverse=True)
+        picks = []
+        for v, t in cand:
+            if 0.9 <= t <= dur - 1.2 and all(abs(t - p) >= gap for p in picks):
+                picks.append(round(max(0.0, t - 0.04), 2))
+            if len(picks) >= max_n:
+                break
+        return picks
+    except Exception as ex:
+        print('[render] audio peaks skipped:', ex, flush=True)
+        return []
+
+
+def _env(p, rise=0.09, hold=0.5, fall=0.35):
+    return f"clip((it-{p})/{rise},0,1)*(1-clip((it-{p}-{hold})/{fall},0,1))"
+
+
+def base_filter_x(cam, sw, sh_, fx):
+    """v175 'Hype FX' (Richard, Nov 23 2026): ONE high-energy edit per clip. Gameplay fills the CENTER zone, graded (contrast, colour, sharpen),
+    an opening punch-out, audio-reactive punch-in zooms on every big moment, camera shake + a quick white flash on the two biggest hits, and the
+    facecam as a white-bordered inset. All effects live in the base picture, inside CENTER 400-1320; text stays in its safe bands (verify_edit.py)."""
+    zone_h = L.CENTER[1] - L.CENTER[0]
+    peaks = list(fx.get('peaks') or [])[:6]
+    big = peaks[:2]
+    zoom = '1+0.10*(1-clip(it/0.45,0,1))' + ''.join(f"+0.15*{_env(p)}" for p in peaks)
+    shk = '+'.join(_env(p, hold=0.35, fall=0.25) for p in big) or '0'
+    flash = '+'.join(f"0.22*between(t,{p},{p + 0.1})*(1-(t-{p})/0.1)" for p in big) or '0'
+    gw = max(L.W, int(round(sw * zone_h / sh_ / 2)) * 2)
+    up = 1.5
+    f = [f"[0:v]scale={L.W}:{L.H}:force_original_aspect_ratio=increase,crop={L.W}:{L.H},boxblur=40:3,eq=brightness=-0.6:saturation=0.4,fps={L.FPS}[bg]",
+         f"[0:v]fps={L.FPS},scale={int(gw * up) // 2 * 2}:{int(zone_h * up) // 2 * 2},crop={int(L.W * up) // 2 * 2}:{int(zone_h * up) // 2 * 2},"
+         f"zoompan=z='{zoom}':x='iw/2-(iw/zoom/2)+({shk})*22*sin(it*57)':y='ih/2-(ih/zoom/2)+({shk})*16*cos(it*49)':d=1:s={L.W}x{zone_h}:fps={L.FPS},"
+         f"eq=contrast=1.1:saturation=1.3,unsharp=5:5:0.55[game]",
+         f"[bg][game]overlay=x=0:y={L.CENTER[0]}[b1]"]
+    last = 'b1'
+    if cam:
+        x, y, w, h = cam
+        cw = 360; ch = int(cw * h / w) // 2 * 2
+        if ch > 330:
+            ch = 330; cw = int(ch * w / h) // 2 * 2
+        f.append(f"[0:v]fps={L.FPS},crop={w}:{h}:{x}:{y},scale={cw}:{ch},eq=contrast=1.06:saturation=1.15,pad={cw + 12}:{ch + 12}:6:6:white[cam]")
+        f.append(f"[b1][cam]overlay=x={L.W - cw - 12 - 28}:y={L.CENTER[0] + 28}[b2]")
+        last = 'b2'
+    f.append(f"[{last}]eq=brightness='{flash}':eval=frame[base]")
+    return ';'.join(f)
+
+
 # The two editor styles sent together for every clip (v150, Newbegin): completely different looks to choose from.
 STYLES = {
     'A': {'name': 'Clean Safe-Zone', 'hook_fill': (255, 230, 0), 'plate': None, 'cap_fill': (255, 255, 255), 'cap_px': L.CAP_FONT_PX, 'cap_words': L.CAP_MAX_WORDS},
     'B': {'name': 'Punch Zoom', 'hook_fill': (255, 255, 255), 'plate': (220, 20, 60, 255), 'cap_fill': (255, 230, 0), 'cap_px': 88, 'cap_words': 2},
+    # v175 (Richard): ONE edit per clip from now on, the high-level effects style.
+    'X': {'name': 'Hype FX', 'hook_fill': (255, 255, 255), 'plate': (220, 20, 60, 255), 'cap_fill': (255, 230, 0), 'cap_px': 88, 'cap_words': 2},
 }
 
 
-def render(seg, cam, sw, sh_, hook_png, caps, clean, final, style='A'):
-    fc = base_filter(cam, sw, sh_, style)
+def render(seg, cam, sw, sh_, hook_png, caps, clean, final, style='A', fx=None):
+    fc = base_filter(cam, sw, sh_, style, fx)
     enc = ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-r', str(L.FPS), '-c:a', 'aac', '-b:a', '160k', '-ar', '48000']
     # clean = identical edit with no text (verifier diffs against it); near-lossless so only our text differs
     sh(['ffmpeg', '-y', '-v', 'error', '-i', seg, '-filter_complex', fc, '-map', '[base]', '-map', '0:a', '-c:v', 'libx264', '-qp', '0', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-r', str(L.FPS), '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', clean])
@@ -265,6 +333,10 @@ def main():
     log(f"style {a.style} ({ST['name']})")
     log(f"captions: streamer only · {spk['method']} · kept {spk['kept']}/{spk['phrases']} phrases" + (f" · dropped: {spk.get('dropped_text', '')}" if spk.get('dropped') else ''))
 
+    fx = {}
+    if a.style == 'X':
+        fx['peaks'] = audio_peaks(seg, a.end - a.start)
+        log('hype fx: punch-ins at', fx['peaks'] or 'none (flat audio)', '| shake + flash at', fx['peaks'][:2] or 'none')
     hook_px, cap_px, max_words = L.HOOK_FONT_PX, ST['cap_px'], ST['cap_words']
     final, clean = os.path.join(a.out, f'{a.clip_id}.mp4'), os.path.join(work, 'clean.mp4')
     report = None
@@ -290,7 +362,7 @@ def main():
         plan = {'clip_id': a.clip_id, 'hook': {'text': a.hook.upper(), 'lines': hf['lines'], 'px': hf['px'], 'boxes': hook_boxes},
                 'captions': [{k: c[k] for k in ('text', 'start', 'end', 'word_start', 'lines', 'px', 'boxes')} for c in caps], 'facecam': cam, 'attempt': attempt, 'style': ST['name'], **({'disclosure': badge} if badge else {})}
         json.dump(plan, open(os.path.join(work, 'plan.json'), 'w'), indent=1)
-        render(seg, cam, sw, sh_, hook_png, caps, clean, final, a.style)
+        render(seg, cam, sw, sh_, hook_png, caps, clean, final, a.style, fx)
         report = verify(final, clean, plan)
         report['attempt'] = attempt
         log(f'attempt {attempt}:', 'PASS' if report['pass'] else 'FAIL ' + '; '.join(report['issues']))
