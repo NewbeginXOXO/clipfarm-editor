@@ -144,13 +144,35 @@ def make(src, t, jpg, text, style, work, fc=None):
     return os.path.getsize(jpg) > 5000
 
 
-def make_options(src, out_stem, hook_a, hook_b, work, fc=None, only=None, t=None, text=None, suffix=''):
+def pick_new(src, dur, work, avoid, fc=None, n=16):
+    """v174 "New image": the best-scoring frame at least 1.5 s away from every frame already used."""
+    lo, hi = 0.8, max(1.0, dur - 0.8)
+    best = None
+    for k in range(n):
+        tt = lo + (hi - lo) * k / (n - 1)
+        if any(abs(tt - float(a)) < 1.5 for a in avoid):
+            continue
+        p = os.path.join(work, f'new{k:02d}.png')
+        try:
+            c = (score(frame(src, tt, p, fc)), tt)
+            best = c if best is None or c > best else best
+        except Exception as ex:
+            print('thumb frame skipped', tt, ex)
+    return best[1] if best else None
+
+
+def make_options(src, out_stem, hook_a, hook_b, work, fc=None, only=None, t=None, text=None, suffix='', avoid=None):
     """Writes <out_stem>-A.jpg and <out_stem>-B.jpg (or just one option when revising). Returns {A: (path, t, text), B: ...}."""
     os.makedirs(work, exist_ok=True)
     dur = duration(src)
     res = {}
     if only in ('A', 'B') and t is not None:
         times = {only: float(t)}
+    elif only in ('A', 'B') and avoid:
+        tn = pick_new(src, dur, work, avoid, fc)
+        if tn is None:
+            raise RuntimeError('no new frame left (every part of the clip was already used)')
+        times = {only: tn}
     else:
         (_, ta, _), (_, tb, _) = pick_two(src, dur, work, fc)
         times = {'A': ta, 'B': tb}
