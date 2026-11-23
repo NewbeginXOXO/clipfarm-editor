@@ -253,6 +253,8 @@ def diag(p):
 def fetch_stage(p):
     """Home PC: download every YouTube window this job needs into fetched/ (no rendering, no AI, never posts). Moment scans and diag
     run here completely, because they only read YouTube and send their own results to n8n."""
+    if p.get('cloud_only'):
+        return print('cloud-only job: the GitHub stage runs it (cookie check)')
     if p.get('mode') in ('moments', 'diag'):
         moments(p) if p.get('mode') == 'moments' else diag(p)
         os.makedirs(FETCHED, exist_ok=True); open(os.path.join(FETCHED, 'scan_done.txt'), 'w').write('ok')  # tells the GitHub stage not to repeat it
