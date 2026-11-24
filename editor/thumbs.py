@@ -106,7 +106,8 @@ def draw(im, text, style):
     if not hook:
         return im, []
     d = ImageDraw.Draw(im, 'RGBA')
-    plate = 22 if style == 'B' else 0
+    style = 'A'  # v187 rule (Newbegin): every thumbnail, A and B, uses the same yellow hook design (no black plate)
+    plate = 0
     got = fit(hook, plate=plate)
     if not got:
         raise RuntimeError('hook cannot fit the 220-380 band')
