@@ -277,7 +277,8 @@ STYLES = {
     'A': {'name': 'Clean Safe-Zone', 'hook_fill': (255, 230, 0), 'plate': None, 'cap_fill': (255, 255, 255), 'cap_px': L.CAP_FONT_PX, 'cap_words': L.CAP_MAX_WORDS},
     'B': {'name': 'Punch Zoom', 'hook_fill': (255, 255, 255), 'plate': (220, 20, 60, 255), 'cap_fill': (255, 230, 0), 'cap_px': 88, 'cap_words': 2},
     # v175 (Richard): ONE edit per clip from now on, the high-level effects style.
-    'X': {'name': 'Hype FX', 'hook_fill': (255, 255, 255), 'plate': (220, 20, 60, 255), 'cap_fill': (255, 230, 0), 'cap_px': 88, 'cap_words': 2},
+    'X': {'name': 'Hype FX', 'hook_fill': (255, 230, 0), 'plate': None,  # v187 rule: same yellow design as the thumbnails
+          'cap_fill': (255, 230, 0), 'cap_px': 88, 'cap_words': 2},
 }
 
 
